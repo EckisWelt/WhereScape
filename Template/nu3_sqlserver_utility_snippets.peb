@@ -1,0 +1,173 @@
+{# -- =============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- DBMS Name          : SQL Server                                                                                                                       -- #}
+{# -- Template Name      : nu3_sqlserver_utility_elements                                                                                                   -- #}
+{# -- Description        : Macros to return individual parts to be used in elements                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- =============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- History                                                                                                                                               -- #}
+{# -- 20170711 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
+{# -- 20170828 | Eckhard Zemp         | Add BK to getHashKeyString for Multi-Active Satellites                                                              -- #}
+{# --                                                                                                                                                       -- #}
+
+{# --This macro adds the distinct keyword if configured -- #}
+{% macro distinct() %}
+  {%- if table.sourceJoinDetails.distinct is not empty %}
+    {%- if table.sourceJoinDetails.distinct -%}DISTINCT {%- endif -%}
+  {%- elseif table.viewInfo.distinct is not empty %}
+    {%- if table.viewInfo.distinct -%}DISTINCT {%- endif -%}
+  {%- endif -%}
+{% endmacro %}
+
+{# -- This macro adds hub hash key calculations -- #}
+{% macro getBKCleaned(BKColumn) %}
+  {%- if BKColumn.dataType == "char" or BKColumn.dataType == "varchar" or BKColumn.dataType == "nchar" or BKColumn.dataType == "nvarchar" -%}
+    UPPER(LTRIM(RTRIM(COALESCE(NULLIF({{ BKColumn.name }},''),'-1'))))
+  {%- elseif BKColumn.dataType == "tinyint" or BKColumn.dataType == "smallint" or BKColumn.dataType == "int" or BKColumn.dataType == "bigint" -%}
+    COALESCE({{ BKColumn.name }},-1)
+  {%- else -%}
+    ALERT: Transformation in getBKCleaned() missing
+  {%- endif -%}
+{% endmacro %}
+
+{# -- This macro adds hub hash key calculations -- #}
+{% macro getHubHashKey(hashColumn, indent = "               ") %}
+  {%- set hashFunctionPatBeg  = "HASHBYTES('md5'," -%}
+  {%- set hashFunctionPatEnd  = ")" -%}
+  {%- set hashColTransPattern = "CAST([SRCCOL] AS NVARCHAR(MAX))" -%}
+  {%- set hashConcatPattern   = " +'||'+" -%}
+  {%- if hashColumn.dataType == "char" %}CONVERT({{ hashColumn.fullDataType | upper }},{% endif %}
+  {%- for hashSource in hashColumn.hashKeySources -%}
+    {%- if loop.first -%}
+      {{- hashFunctionPatBeg -}}{%br%}
+    {%- endif -%}
+    {{ indent }}{{- hashColTransPattern.replace("[SRCCOL]",hashSource.name) -}}
+    {%- if not loop.last -%}
+      {{- hashConcatPattern -}}{%br%}
+    {%- else -%}
+      {%br%}{{ indent }}{{- hashFunctionPatEnd -}}
+    {%- endif -%}
+  {%- endfor -%}
+  {%- if hashColumn.dataType == "char" %},2){% endif %}  
+{% endmacro %}
+
+{# -- This macro adds link hash key calculations -- #}
+{% macro getLinkHashKey(hashColumn, indent = "               ") %}
+  {%- set hashFunctionPatBeg  = "HASHBYTES('md5'," -%}
+  {%- set hashFunctionPatEnd  = ")" -%}
+  {%- set hashColTransPattern = "CAST([SRCCOL] AS NVARCHAR(MAX))" -%}
+  {%- set hashConcatPattern   = " +'||'+" -%}
+  {%- if hashColumn.dataType == "char" %}CONVERT({{ hashColumn.fullDataType | upper }},{% endif %}
+  {%- for hashSource in hashColumn.hashKeySources -%}
+    {%- if loop.first -%}
+      {{- hashFunctionPatBeg -}}{%br%}
+    {%- endif -%}
+    {{ indent }}{{- hashColTransPattern.replace("[SRCCOL]",hashSource.name) -}}
+    {%- if not loop.last -%}
+      {{- hashConcatPattern -}}{%br%}
+    {%- else -%}
+      {%br%}{{ indent }}{{- hashFunctionPatEnd -}}
+    {%- endif -%}
+  {%- endfor -%}
+  {%- if hashColumn.dataType == "char" %},2){% endif %}    
+{% endmacro %}
+
+{# -- This macro adds change hash key calculations -- #}
+{% macro getChangeHashKey(hashColumn, indent = "               ") %}
+  {%- set hashFunctionPatBeg  = "HASHBYTES('md5'," -%}
+  {%- set hashFunctionPatEnd  = ")" -%}
+  {%- set hashColTransPattern = "COALESCE(CAST([SRCCOL] AS NVARCHAR(MAX)),'')" -%}
+  {%- set hashConcatPattern   = " +'||'+" -%}
+  {%- set hashStr = "" -%}
+  {%- if hashColumn.dataType == "char" %}CONVERT({{ hashColumn.fullDataType | upper }},{% endif %}
+  {%- for stuff in hashColumn.hashKeySources -%}
+    {%- set hashStr = hashStr + stuff.name -%}
+    {%- if not loop.last %}{% set hashStr = hashStr + "
+" -%}
+    {%- endif -%}
+  {%- endfor -%}
+  {%- for hashColumn in hashStr | lines | sort -%}  
+   {%- if loop.first -%}
+      {{- hashFunctionPatBeg -}}{%br%}
+    {%- endif -%}
+    {{- indent -}}{{- hashColTransPattern.replace("[SRCCOL]",hashColumn) -}}
+    {%- if not loop.last -%}
+      {{- hashConcatPattern -}}{%br%}
+    {%- else -%}
+      {%br%}{{- indent }}{{- hashFunctionPatEnd -}}
+    {%- endif -%}
+  {%- endfor -%}
+  {%- if hashColumn.dataType == "char" %},2){% endif %}    
+{% endmacro %}
+
+# -- This macro returns a string of business keys used for row_number -- #}
+{% macro getBKString() %}
+  {%- from table.columns as column where column.businessKey %}
+    {%- if not loop.first%} , {% endif %}{{ column.name }}
+  {%- endfrom %}
+{% endmacro %}
+
+# -- This macro returns a string of hash keys used for row_number -- #}
+{% macro getHashKeyString() %}
+  {%- from table.columns as column where column.hubHashKey or column.linkHashKey or column.businessKey %}
+    {%- if not loop.first%} , {% endif %}{{ column.name }}
+  {%- endfrom %}
+{% endmacro %}
+
+{% macro getSourceTableString(settings , length = 80) %}
+  {%- set string = "" -%}
+  {%- fetch settings.sourceTablesByName %}  
+  {%- from settings.sourceTablesByName as src %}
+    {%- if not loop.first%}{%- set string = string + " , " %}{% endif %}{%- set string = string + src.key -%}
+  {%- endfrom -%}
+  {{- string | abbreviate(length) -}}
+{% endmacro %}
+
+{% macro getFirstSourceTable(settings) %}
+  {%- set empty = "" %}
+  {%- fetch settings.sourceTablesByName %}  
+  {%- from settings.sourceTablesByName as src %}
+    {%- if loop.first %}
+      {{- empty }}{{ src.key }}
+    {%- endif %}
+  {%- endfrom %}
+{% endmacro %}
+
+{% macro getSourceTableDssLoadDatetime() %}
+  {%- set empty = "" %}
+  {%- from table.columns as column where column.name == "dss_load_datetime"%}
+    {{- empty }}{{ column.source }}
+  {%- endfrom %}
+{% endmacro %}
+
+{% macro getSourceTableMain(target_database="") %}
+  {%- set empty = "" %}
+  {%- fetch table.columns[0].sourceTable -%}  
+  {{- empty }}{%- if target_database != column.sourceTable.database %}[{{ column.sourceTable.database }}].{%- endif %}[{{ column.sourceTable.schema }}].[{{ column.sourceTable.name }}] AS {{ column.sourceTable.name }}
+{% endmacro %}
+
+{% macro getFirstBKFirst() %}
+  {%- set empty = "" %}
+  {%- from table.columns as column where column.businessKey %}
+    {%- if loop.first %}
+      {{- empty }}{{ column.name }}    
+    {%- endif %}
+  {%- endfrom %}
+{% endmacro %}
+
+{% macro checkBKexists() %}
+  {%- from table.columns as column where column.businessKey -%}
+    {%- set hasBusinessKey = "1" -%}
+  {%- endfrom -%}
+  {%- if hasBusinessKey != "1" -%}
+    MISSING_BUSINESS_KEY --> Set the Key Type in the columnlist{%br%}
+  {%- endif -%}
+{% endmacro %}
+
+# -- Splits an object into lines. They can be clauses and transformations -- #}
+{% macro getLines (indent = "       ", object = "") %}
+  {%- for getLine in (object | trim | lines) -%}
+    {%- if not loop.first %}{{- indent }}{%- endif %}{{ getLine }}{%- if not loop.last %}{%br%}{%- endif %}
+  {%- endfor %}
+{% endmacro %}
