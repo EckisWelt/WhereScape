@@ -1,0 +1,139 @@
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- DBMS Name          : SQL Server                                                                                                                       -- #}
+{# -- Template Name      : nu3_sqlserver_procedure_stage                                                                                                    -- #}
+{# -- Description        : This template loads data into a stage table to be used                                                                           -- #}
+{# --                      by many destination table types (multi-purpose template)                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- History                                                                                                                                               -- #}
+{# -- 20170628 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
+{# -- 20170711 | Eckhard Zemp         | Redesign                                                                                                            -- #}
+{# -- 20170717 | Eckhard Zemp         | Rename                                                                                                              -- #}
+{# -- 20170814 | Eckhard Zemp         | Hash Update                                                                                                         -- #}
+{# -- 20171102 | Eckhard Zemp         | Adding Clean HashBK subquery                                                                                        -- #}
+{# -- 20171102 | Eckhard Zemp         | Adding Dimension Lookup                                                                                             -- #}
+{# -- 20171108 | Eckhard Zemp         | Beautify multiple lines with getLines                                                                               -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+
+{#- Load utility macros #}
+{%- import "nu3_sqlserver_procedure" -%}
+{%- import "nu3_sqlserver_utility_elements" -%}
+{%- import "nu3_sqlserver_utility_snippets" -%}
+
+{#- Variables #}
+{%- set templateVersion = "20171108" -%}
+{%- set TempTable = "#" + table.name -%}
+{%- set BKColumnsExists = false -%}
+{%- from table.columns as column where column.businessKey -%}
+  {%- set BKColumnsExists = true -%}
+{%- endfrom -%}
+
+{#- Procedure Header#}
+  {{- addProcedureDocumentation(templateVersion) }}
+  {{- addProcedureHeader() }}
+  {{- addProcedureCommentBlock(commentMessage = "MAIN") }}
+  SET @v_step = {% counter %}00{% br %}{% br %}
+  SET @v_insert_count = 0{% br %}
+  SET @v_current_datetime = SYSDATETIME(){% br %}{% br %}
+  BEGIN TRY{% br %}{% br %}
+    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Source") }}
+    {{- addDetailMessage(indent = "    ",message = "Load data from " + getSourceTableString(settings, length = 65)) }}        
+    {% br %}    
+{#- Delete old records #}
+    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Delete existing records") }}
+    SET @v_step = {% counter %}00{% br %}{% br %}
+    SET @v_sql = N'TRUNCATE TABLE [TABLEOWNER].[{{ table.name }}];'{% br %}
+    EXEC @v_return_status = sp_executesql @v_sql{% br %}{% br %}
+   
+{#- Create temporary table only if we have to calculate a hash key #}
+    {%- set hasHashKey = false -%}      
+    {%- from table.columns as column where (column.hubHashKey or column.linkHashKey or column.changeHashKey) and column.hashKeySources is defined and table.sourceJoinDetails.where | trim != ""  -%}
+      {%- set hasHashKey = true -%}      
+    {%- endfrom -%}
+    {%- if hasHashKey == true -%}
+    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Extract columns") }}
+    SET @v_step = {% counter %}00{% br %}{% br %}
+    SET @v_row_count = 0{% br %}{% br %}
+    IF OBJECT_ID('tempdb..{{ TempTable }}') IS NOT NULL
+      DROP TABLE {{ TempTable }}{% br %}{% br %}
+    SELECT {% br %}
+           {{- addSelectColumnsExtract(indent = "          ") }}
+    INTO   {{ TempTable }}{% br %}
+    {%- if table.sourceJoinDetails.join | trim != "" %}    {{ getLines(indent="    ",object = table.sourceJoinDetails.join) }}{% br %}{%- endif %}
+    {%- if table.sourceJoinDetails.where | trim != "" %}    {{ getLines(indent="    ",object = table.sourceJoinDetails.where) }}{% br %}{%- endif %}
+    {%- if table.sourceJoinDetails.groupBy | trim != "" %}    {{ getLines(indent="    ",object = table.sourceJoinDetails.groupBy) }}{% br %}{%- endif %}    
+    ;{% br %}{% br %}
+    SELECT @v_row_count = @@ROWCOUNT{% br %}
+    {{- addDetailMessage(indent = "    ",message = TempTable + " updated. ' + CONVERT(VARCHAR,@v_row_count) + ' records added.") }}
+    {% br %}
+    {%- endif %}       
+    
+{#- Insert new records #}
+    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Insert new records") }}
+    SET @v_step = {% counter %}00{% br %}{% br %}
+    BEGIN TRANSACTION{% br %}{% br %}
+      INSERT INTO [TABLEOWNER].[{{ table.name }}] WITH ( TABLOCKX ){% br %}
+      ({% br %}
+             {{- addInsertColumns(indent = "            ") }}    
+      ){% br %}
+{#- Select Result #}
+      SELECT {{ distinct() }}{% br %}
+             {{- addSelectColumnsResult(indent = "            ") }}
+      FROM   ({% br %}
+{#- Select Lookup #}
+        SELECT {{ table.name }}.*{% br %}
+               {{- addSelectColumnsLookup(indent = "              ",firstInClause = false) }}
+        FROM   ({% br %}
+{#- Select Unique #}
+          SELECT *{% br %}
+                 {%- if BKColumnsExists == true %}{{- addSelectColumnsUnique(indent = "                ",firstInClause = false) }}{%- endif %}
+          FROM   ({% br %}
+{#- Select Hash #}
+            SELECT *{% br %}
+                   {{- addSelectColumnsHash(indent = "                  ",firstInClause = false) }}
+            FROM   ({% br %}
+{#- Select Clean hubHashBK #}
+              SELECT {% br %}
+                     {{- addSelectColumnsHashBKClean(indent = "                    ") }}
+              FROM   ({% br %}      
+{#- Select Extract #}
+              {%- if hasHashKey == true %}
+                SELECT *{% br %}
+                FROM   {{ TempTable }} AS {{ table.name }}{% br %}
+              {%- else %}
+                SELECT {% br %}
+                       {{- addSelectColumnsExtract(indent = "                      ") }}
+                {%- if table.sourceJoinDetails.join | trim != "" %}                {{ getLines(indent="                ",object = table.sourceJoinDetails.join) }}{% br %}{%- endif %}
+                {%- if table.sourceJoinDetails.where | trim != "" %}                {{ getLines(indent="                ",object = table.sourceJoinDetails.where) }}{% br %}{%- endif %}
+                {%- if table.sourceJoinDetails.groupBy | trim != "" %}                {{ getLines(indent="                ",object = table.sourceJoinDetails.groupBy) }}{% br %}{%- endif %}
+              {%- endif %}
+              ) AS {{ table.name }}{% br %}
+            ) AS {{ table.name }}{% br %}
+          ) AS {{ table.name }}{% br %}   
+        ) AS {{ table.name }}{% br %}
+        {%- if BKColumnsExists == true %}        WHERE {{ table.name }}.dss_row_no = 1{% br %}{%- endif %}
+        {{- addLeftOuterJoinLookup(indent="        ") }}        
+      ) AS {{ table.name }}{% br %}
+      ;{% br %}{% br %}
+      SELECT @v_row_count = @@ROWCOUNT{% br %}{% br %}
+    COMMIT{% br %}{% br %}
+    SET @v_insert_count = @v_insert_count + @v_row_count{% br %}
+    {{- addDetailMessage(indent = "    ",message = table.name + " updated. ' + CONVERT(VARCHAR,@v_row_count) + ' records added.") }}
+    {% br %}
+        
+{#- CleanUp #}
+    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Clean Up") }}
+    SET @v_step = {% counter %}00{% br %}{% br %}    
+    IF OBJECT_ID('tempdb..{{ TempTable }}') IS NOT NULL{% br %}
+      DROP TABLE {{ TempTable }}{% br %}{% br %}    
+        
+{#- Finish Up #}
+    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Finish Up") }}
+    SET @v_step = {% counter %}00{% br %}{% br %}
+    {{- addFinishTask() }}
+    {{- addReturnMessage() }}
+  END TRY{% br %}
+  {{- addProcedureException() -}}
