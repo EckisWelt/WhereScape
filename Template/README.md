@@ -1,7 +1,9 @@
 ## Templates
 
 The current template scheme is the following:
+```
 {company}_{platform}_{template type}_{object type}
+```
 
 What kind of template types do exist (so far in our architecture):
 * ddl (used for create statements for views and tables)
