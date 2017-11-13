@@ -1,20 +1,20 @@
-{# -- =============================================================================                                                                         -- #}
+{# --==============================================================================                                                                         -- #}
 {# --                                                                                                                                                       -- #}
 {# -- DBMS Name          : SQL Server                                                                                                                       -- #}
 {# -- Template Name      : nu3_sqlserver_utility                                                                                                            -- #}
 {# -- Description        : Macros to outline a Stored Procedure (Based on wsl_sqlserver_utility_dv)                                                         -- #}
 {# --                                                                                                                                                       -- #}
-{# -- =============================================================================                                                                         -- #}
+{# --==============================================================================                                                                         -- #}
 {# --                                                                                                                                                       -- #}
 {# -- History                                                                                                                                               -- #}
 {# -- 20170628 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
 {# -- 20171101 | Eckhard Zemp         | Removing obsolet parameters                                                                                         -- #}
 {# --                                                                                                                                                       -- #}
-{# -- =============================================================================                                                                         -- #}
+{# --==============================================================================                                                                         -- #}
 
-# -- This macro adds a documentation header -- #}
+{# -- This macro adds a documentation header -- #}
 {% macro addProcedureDocumentation(templateVersion = "") %}
--- ============================================================================={% br %}
+--=============================================================================={% br %}
 -- DBMS Name        :    {{ table.dbType.name }}{% br %}
 -- Procedure Name   :    {{ settings.procedureName }}{% br %}
 -- Template         :    {{ settings.template.Name }}{% br %}
@@ -24,11 +24,11 @@
 -- Generated for    :    {{ env.licensedTo }}{% br %}
 -- Generated on     :    {{ env.currentTimestamp }}{% br %}
 -- Author           :    {{ env.userName }}{% br %}
--- ============================================================================={% br %}
+--=============================================================================={% br %}
 {% br %}
 {% endmacro %}
 
-# -- This macro inserts the procedure header including parameters and declarations -- #}
+{# -- This macro inserts the procedure header including parameters and declarations -- #}
 {% macro addProcedureHeader() %}
 CREATE PROCEDURE {{ settings.procedureName }}{% br %}
 {{ addProcedureParameters()-}}
@@ -39,7 +39,7 @@ AS{% br %}
 
 {# -- This macro inserts the procedure comment block -- #}
 {% macro addProcedureCommentBlock(indent = "  ", commentMessage = "Hello") %}
-  {%- set commentBlockLine = "-- =============================================================================" -%}
+  {%- set commentBlockLine = "--==============================================================================" -%}
   {%- set indentLength = indent | length -%}
   {{- indent }}{{ commentBlockLine | slice(0,80 - indentLength) }}{% br %}
   {{- indent }}-- {{ commentMessage }}{% br %}
