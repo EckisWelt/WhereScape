@@ -27,3 +27,12 @@ While in the **snippets template** are just small recurring code to return strin
 
 The procedure template type starts with the outline of a stored procedure and recurring elements. Actually it is also an 
 utility template but for better organization and because it can only be used for procedure templates it lies here.
+
+## Notes
+
+From a default environment I changed some stuff:
+* All date data types are of datetime2(7) 
+* I use sysdatetime() to get insert_date or update_date
+* My major system column for load dates is dss_load_datetime
+
+Modify accordingly to get it working.
