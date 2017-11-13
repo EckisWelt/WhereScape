@@ -10,6 +10,7 @@
 {# -- 20170711 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
 {# -- 20170828 | Eckhard Zemp         | Add BK to getHashKeyString for Multi-Active Satellites                                                              -- #}
 {# --                                                                                                                                                       -- #}
+{# -- =============================================================================                                                                         -- #}
 
 {# --This macro adds the distinct keyword if configured -- #}
 {% macro distinct() %}
