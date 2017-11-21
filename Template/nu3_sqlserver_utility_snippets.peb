@@ -27,6 +27,8 @@
     UPPER(LTRIM(RTRIM(COALESCE(NULLIF({{ BKColumn.name }},''),'-1'))))
   {%- elseif BKColumn.dataType == "tinyint" or BKColumn.dataType == "smallint" or BKColumn.dataType == "int" or BKColumn.dataType == "bigint" -%}
     COALESCE({{ BKColumn.name }},-1)
+  {%- elseif BKColumn.dataType == "date" or BKColumn.dataType == "datetime2" -%}    
+    COALESCE({{ BKColumn.name }},'0001-01-01')  
   {%- else -%}
     ALERT: Transformation in getBKCleaned() missing
   {%- endif -%}
@@ -111,7 +113,7 @@
 
 # -- This macro returns a string of hash keys used for row_number -- #}
 {% macro getHashKeyString() %}
-  {%- from table.columns as column where column.hubHashKey or column.linkHashKey or column.businessKey %}
+  {%- from table.columns as column where column.hubHashKey or column.linkHashKey %}
     {%- if not loop.first%} , {% endif %}{{ column.name }}
   {%- endfrom %}
 {% endmacro %}
@@ -135,22 +137,23 @@
   {%- endfrom %}
 {% endmacro %}
 
-{% macro getSourceTableDssLoadDatetime() %}
+{% macro getSourceTableDssLoadDate() %}
   {%- set empty = "" %}
-  {%- from table.columns as column where column.name == "dss_load_datetime"%}
+  {%- from table.columns as column where column.name == "dss_load_datetime" %}
     {{- empty }}{{ column.source }}
   {%- endfrom %}
 {% endmacro %}
 
-{% macro getSourceTableMain(target_database="") %}
+{% macro getSourceTableView(target_database="") %}
   {%- set empty = "" %}
   {%- fetch table.columns[0].sourceTable -%}  
-  {{- empty }}{%- if target_database != column.sourceTable.database %}[{{ column.sourceTable.database }}].{%- endif %}[{{ column.sourceTable.schema }}].[{{ column.sourceTable.name }}] AS {{ column.sourceTable.name }}
+  {{- empty }}{%- if target_database != table.columns[0].sourceTable.database %}[{{ table.columns[0].sourceTable.database }}].{%- endif %}[{{ table.columns[0].sourceTable.schema }}].[{{ table.columns[0].sourceTable.name }}] AS {{ table.columns[0].sourceTable.name }}
 {% endmacro %}
 
-{% macro getFirstBKFirst() %}
+{# -- This macro returns a string of hash keys or BK used for version -- #}
+{% macro getFirstBK() %}
   {%- set empty = "" %}
-  {%- from table.columns as column where column.businessKey %}
+  {%- from table.columns as column where column.businessKey or column.hubHashKey or column.linkHashKey %}
     {%- if loop.first %}
       {{- empty }}{{ column.name }}    
     {%- endif %}
