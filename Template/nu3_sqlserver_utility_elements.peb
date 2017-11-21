@@ -10,54 +10,21 @@
 {# -- 20170711 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
 {# -- 20171101 | Eckhard Zemp         | Document & Clean-Up                                                                                                 -- #}
 {# -- 20171113 | Eckhard Zemp         | Lookup Beautify                                                                                                     -- #}
+{# -- 20171114 | Eckhard Zemp         | Add objects for PIT tables                                                                                          -- #}
+{# -- 20171116 | Eckhard Zemp         | Modify version calculation                                                                                          -- #}
 {# --                                                                                                                                                       -- #}
 {# --==============================================================================                                                                         -- #}
 
 {# --==============================================================================                                                                         -- #}
-{# -- Default                                                                                                                                               -- #}
+{# -- Insert                                                                                                                                                -- #}
 {# --==============================================================================                                                                         -- #}
 
 {# -- This macro adds the target columns for an INSERT statement -- #}
 {# -- Every column is taken -- #}
 {% macro addInsertColumns(indent = "  ",firstInClause = true) %}
-  {%- from table.columns as column %}
+  {%- from table.columns as column -%}
     {{- indent }}
     {%- if loop.first and firstInClause %} {% else %},{% endif %}{{ column.name }}{% br %}
-  {%- endfrom %}
-{% endmacro %}
-
-{# -- This macro adds the source columns and transformations for a SELECT statement to load data from a source table -- #}
-{% macro addSelectColumns(indent = "       ",firstInClause = true) %}
-  {%- from table.columns as column %}
-    {{- indent }} 
-    {%- if loop.first and firstInClause %} {% else %},{% endif %}
-    {%- if column.dssStartDate -%}
-      {%- if table.objectType == Types.ObjectType.DataStore -%}
-                     CASE WHEN current_rows.{{ getFirstBKFirst() }} IS NULL{% br %}
-        {{- indent }}      THEN CAST('0001-01-01' AS datetime2(7)){% br %}
-        {{- indent }}      ELSE {{ getSourceTableDssLoadDatetime() }}{% br %}
-        {{- indent }} END
-      {%- else -%}
-        {{ getSourceTableDssLoadDatetime() }}
-      {%- endif %}            
-    {%- elseif column.dssEndDate -%}
-      CAST('9999-12-31' AS datetime2(7))
-    {%- elseif column.dssVersion -%}
-                   CASE WHEN current_rows.{{ getFirstBKFirst() }} IS NULL{% br %}
-      {{- indent }}      THEN 1{% br %}
-      {{- indent }}      ELSE current_rows.dss_version + 1{% br %}
-      {{- indent }} END
-    {%- elseif column.currentFlag -%}
-      'Y'
-    {%- elseif column.updateTime or column.createTime -%} 
-      @v_current_datetime
-    {%- else -%}
-      {%- if column.transform | trim != "" -%}
-        {{- getLines(indent + " ",object = column.transform) }}
-      {%- else -%}
-        {{ column.source }}
-      {%- endif %} 
-    {%- endif %} AS {{ column.name }} {% br %}
   {%- endfrom %}
 {% endmacro %}
 
@@ -83,8 +50,17 @@
   {%- endfrom %}
 {% endmacro %}
 
+{# -- This macro adds the target columns for a CREATE statement of a temporary table -- #}
+{# -- No need for system columns -- #}
+{% macro addCreateColumnsPIT(indent = "       ",firstInClause = true) %}
+  {%- from table.columns as column where column.hubHashKey or column.name == "snapshot_datetime" -%}
+    {{- indent }}
+    {%- if loop.first and firstInClause %} {% else %},{% endif %}{{ column.name }} {{ column.fullDataType }}{% br %} 
+  {%- endfrom %}
+{% endmacro %}
+
 {# --==============================================================================                                                                         -- #}
-{# -- Stage Table                                                                                                                                           -- #}
+{# -- SELECT statements                                                                                                                                     -- #}
 {# --==============================================================================                                                                         -- #}
 
 {# -- This macro adds the source columns and transformations for a SELECT statement to load data from a source table -- #}
@@ -159,9 +135,9 @@
 {# -- This is the 4. step in a STAGE object. Last row will be retrieved -- #}
 {% macro addSelectColumnsUnique(indent = "       ",firstInClause = true) %}
   {{- indent -}},ROW_NUMBER() OVER (PARTITION BY {{ getBKString() }} ORDER BY {% from table.columns as column where column.name == "dss_load_datetime" or column.name == "dss_sequence_no" %}
-  {%- if not loop.first -%}, {% endif %}
+    {%- if not loop.first -%}, {% endif %}
     {{- column.name }} DESC
-  {%- endfrom %}) AS dss_row_no{% br %}
+  {%- endfrom %}) AS {{ dssRowNo() }}{% br %}
 {% endmacro %}
 
 {# -- This macro adds the columns for dimension lookups -- #}
@@ -176,20 +152,41 @@
 
 {# -- This macro adds the columns for the final result -- #}
 {# -- This is the final step in a STAGE object -- #}
-{% macro addSelectColumnsResult(indent = "       ",firstInClause = true,sysObjectType = "TABLE") %}
+{% macro addSelectColumnsResult(indent = "       " , sysObjectType = "TABLE" , firstInClause = true) %}
   {%- from table.columns as column %}
     {{- indent }}
     {%- if loop.first and firstInClause %} {% else %},{% endif %}
-    {%- if column.updateTime or column.createTime -%}
-      {%- if sysObjectType == "TABLE" -%}
+    {%- if column.dssStartDate -%}
+      {%- if table.objectType == Types.ObjectType.DataStore -%}
+                     CASE WHEN current_rows.{{ getFirstBK() }} IS NULL{% br %}
+        {{- indent }}      THEN CAST({{ dssDateTimeMinValue() }} AS {{ dssDateTimeDataType() }}){% br %}
+        {{- indent }}      ELSE {{ table.name }}.{{ dssLoadDate() }}{% br %}
+        {{- indent }} END
+      {%- else -%}
+        {{ table.name }}.{{ dssLoadDate() }}
+      {%- endif %}            
+    {%- elseif column.dssEndDate -%}
+      CAST({{ dssDateTimeMaxValue() }} AS {{ dssDateTimeDataType() }})
+    {%- elseif column.dssVersion -%}
+                   CASE WHEN current_rows.{{ getFirstBK() }} IS NULL{% br %}
+      {{- indent }}      THEN 1{% br %}
+      {{- indent }}      ELSE current_rows.{{ column.name }} + {{ dssRowNo() }}{% br %}
+      {{- indent }} END
+    {%- elseif column.currentFlag -%}
+      'Y'
+    {%- elseif column.updateTime or column.createTime -%}
+      {%- if column.sourceTable is defined -%}
+        {%- fetch column.sourceColumn -%}      
+        {{ column.sourceColumn.name }}
+      {%- elseif sysObjectType == "TABLE" -%}
         @v_current_datetime
       {%- elseif sysObjectType == "VIEW" -%}
-        SYSDATETIME()
+        {{ currentDatetimeFormula() }}
       {%- else -%}
         MISSING FORMULA
       {%- endif -%}
     {%- else -%}
-      {{ column.name }}
+      {{ table.name }}.{{ column.name }}
     {%- endif %} AS {{ column.name }} {% br %}
   {%- endfrom %}
 {% endmacro %}
@@ -235,10 +232,28 @@
     {%- elseif column.name == "is_full" -%}
       1 AS is_full{% br %}
     {%- elseif column.name == "dss_load_datetime" -%}      
-      SYSDATETIME() as dss_load_datetime{% br %}
+      {{ currentDatetimeFormula() }} as {{ dssLoadDate() }}{% br %}
     {%- else -%}
       {{ column.name }}{% br %} 
     {%- endif -%}
+  {%- endfrom %}
+{% endmacro %}
+
+{# --==============================================================================                                                                         -- #}
+{# -- History Table                                                                                                                                         -- #}
+{# --==============================================================================                                                                         -- #}
+
+{% macro addUpdateColumnsHistory(indent = "       ",firstInClause = true) %}
+  {%- from table.columns as column where column.dssEndDate or column.currentFlag or column.updateTime %}
+    {{- indent }}
+    {%- if loop.first and firstInClause %}SET    {% else %}      ,{% endif %}
+    {%- if column.dssEndDate -%}
+      {{ column.name }} = {{ dssEndDateFormula() }}
+    {%- elseif column.currentFlag -%}
+      {{ column.name }} = 'N'
+    {%- elseif column.updateTime -%}
+      {{ column.name }} = @v_current_datetime      
+    {%- endif %}{% br %}
   {%- endfrom %}
 {% endmacro %}
 
@@ -294,7 +309,7 @@
 {# -- This macro adds the target columns of a zero key row for an INSERT statement to load data into a dimension table  -- #}
 {# -- Only artificial key column, business key columns and system columns are needed -- #}
 {% macro addInsertColumnsDimZeroKey(indent = "       ",firstInClause = true) %}
-  {%- from table.columns as column where column.artificial or column.businessKey or column.createTime or column.updateTime or column.name == "dss_load_datetime" -%}
+  {%- from table.columns as column where column.artificial or column.businessKey or column.createTime or column.updateTime or column.name == dssLoadDate() -%}
     {{- indent }}
     {%- if loop.first and firstInClause %} {% else %},{% endif %}{{ column.name }}{% br %}
   {%- endfrom %}
@@ -302,7 +317,7 @@
 
 {# -- This macro adds the source values of a zero key row to load it into a dimension table  -- #}
 {% macro addSelectColumnsDimZeroKey(indent = "       ",firstInClause = true) %}
-  {%- from table.columns as column where column.artificial or column.businessKey or column.createTime or column.updateTime or column.name == "dss_load_datetime" %}
+  {%- from table.columns as column where column.artificial or column.businessKey or column.createTime or column.updateTime or column.name == dssLoadDate() %}
     {{- indent }}
     {%- if loop.first and firstInClause %} {% else %},{% endif %}
     {%- if column.artificial -%}
@@ -312,7 +327,7 @@
     {%- elseif column.updateTime or column.createTime -%} 
       @v_current_datetime
     {%- elseif column.name == "dss_load_datetime" -%} 
-      '0001-01-01'
+      {{ dssDateTimeMinValue() }}
     {%- endif %}{% br %}
   {%- endfrom %}
 {% endmacro %}
@@ -363,8 +378,8 @@
 {# --==============================================================================                                                                         -- #}
 
 {# -- This macro inserts the where clause for the max(dss_load_datetime) of the target -- #}
-{% macro addWhereDssLoadDatetimeMax(indent = "    ",targetTable = "MISSING") %}
-  {{- indent }}WHERE  dss_load_datetime > ( SELECT ISNULL(MAX(dss_load_datetime) , '0001-01-01') FROM [TABLEOWNER].[{{ targetTable }}]){% br %}
+{% macro addWhereDssLoadDateMax(indent = "    ",targetTable = "MISSING") %}
+  {{- indent }}WHERE  {{ dssLoadDate() }} > ( SELECT ISNULL(MAX({{ dssLoadDate() }}) , {{ dssDateTimeMinValue() }}) FROM [TABLEOWNER].[{{ targetTable }}]){% br %}
 {% endmacro %}
 
 {% macro addWhereBKColumns(indent = "       ", firstInClause = true ) %}
@@ -375,9 +390,16 @@
 {% endmacro %}
 
 {% macro addWhereLDTColumn(indent = "       ", firstInClause = true ) %}
-  {%- from table.columns as column where column.name == "dss_load_datetime" -%}
+  {%- from table.columns as column where column.name == "dss_load_datetime -%}
     {{- indent }}
     {%- if loop.first and firstInClause %}WHERE  {% else %}       AND {% endif %}{{ table.name }}.{{ column.name }} <> {{ column.source }}{% br %}    
+  {%- endfrom -%}
+{% endmacro %}
+
+{% macro addWhereCurrentFlagColumns(indent = "       ", firstInClause = true ) %}
+  {%- from table.columns as column where column.currentFlag -%}
+    {{- indent }}
+    {%- if loop.first and firstInClause %}WHERE  {% else %}       AND {% endif %}{{ table.name }}.{{ column.name }} = 'Y'{% br %}    
   {%- endfrom -%}
 {% endmacro %}
 
@@ -396,29 +418,20 @@
   {%- endif -%}
 {% endmacro %}
   
-{% macro addWhereBKNotExists(indent = "       ",sourceTable = "", targetTable = table.name, firstInClause = true ) %}
-  {%- set empty = "" %}
+{% macro addWhereBKNotExists(indent = "       ", firstInClause = true ) %}
   {%- if table.sourceJoinDetails.where | trim == "" and firstInClause  %}
     {{- indent }}WHERE NOT EXISTS ({% br %}
   {%- else %}
     {{- indent }}AND NOT EXISTS ({% br %}
   {%- endif %}
-  {%- if sourceTable | trim == "" %}
-    {{- indent }}                  SELECT 1{% br %}
-    {{- indent }}                  FROM   [TABLEOWNER].[{{ targetTable }}] {{ targetTable }}{% br %}
-    {%- from table.columns as column where column.businessKey and column.name != "dss_load_datetime" %} 
-      {%- if loop.first %}{{- indent }}                  WHERE  {% else %}{{- indent }}                  AND    {% endif %}
-      {{- column.source }} = {{ targetTable }}.{{ column.name }}{% br %}
-    {%- endfrom %}
-  {%- else %}
-    {{- indent }}                  SELECT 1{% br %}
-    {{- indent }}                  FROM   {{ sourceTable }} AS t{% br %}
-    {%- from table.columns as column where column.businessKey and column.name != "dss_load_datetime" %} 
-      {%- if loop.first %}{{- indent }}                  WHERE  {% else %}{{- indent }}                  AND    {% endif %}
-      {{- empty -}}t.{{ column.name }} = {{ targetTable }}.{{ column.name }}{% br %}
-    {%- endfrom %}    
-  {%- endif %}
-  {{- indent }}                 ){% br %}
+  {{- indent }}        SELECT 1{% br %}
+  {{- indent }}        FROM   [TABLEOWNER].[{{ table.name }}] {{ table.name }}__not_exist{% br %}
+  {%- from table.columns as column where column.businessKey and column.name != dssLoadDate() %} 
+    {{- indent }}
+    {%- if loop.first %}        WHERE  {% else %}               AND {% endif %}
+    {{- table.name }}__not_exist.{{ column.name }} = {{ table.name }}.{{ column.name }}{% br %}
+  {%- endfrom %}
+  {{- indent }}){% br %}
 {% endmacro %}
 
 {# -- This macro inserts the where not exists query for a history -- #}
@@ -428,15 +441,15 @@
   {%- else %}
     {{- indent }}AND NOT EXISTS ({% br %}
   {%- endif %}
-  {{- indent }}       SELECT 1{% br %}
-  {{- indent }}       FROM   [TABLEOWNER].[{{ table.name }}] {{ table.name }}{% br %}
+  {{- indent }}        SELECT 1{% br %}
+  {{- indent }}        FROM   [TABLEOWNER].[{{ table.name }}] {{ table.name }}__not_exist{% br %}
   {%- from table.columns as column where column.businessKey or column.slowlyChanging or column.currentFlag %} 
     {{- indent }}
-    {%- if loop.first %}       WHERE  {% else %}              AND {% endif %} 
+    {%- if loop.first %}        WHERE  {% else %}               AND {% endif %} 
     {%- if column.currentFlag %}
-      {{- table.name }}.{{ column.name }} = 'Y'{% br %}
+      {{- table.name }}__not_exist.{{ column.name }} = 'Y'{% br %}
     {%- else %}
-      {{- table.name }}.{{ column.name }} = {{ column.source }}{% br %}
+      {{- table.name }}__not_exist.{{ column.name }} = {{ table.name }}.{{ column.name }}{% br %}
     {%- endif %}
   {%- endfrom %}
   {{- indent }}){% br %}  
@@ -449,12 +462,12 @@
   {%- else %}
     {{- indent }}AND NOT EXISTS ({% br %}
   {%- endif %}
-  {{- indent }}       SELECT 1{% br %}
-  {{- indent }}       FROM   [TABLEOWNER].[{{ table.name }}] {{ table.name }}{% br %}
+  {{- indent }}        SELECT 1{% br %}
+  {{- indent }}        FROM   [TABLEOWNER].[{{ table.name }}] {{ table.name }}__not_exist{% br %}
   {%- from table.columns as column where column.hubHashKey %} 
     {{- indent }}
-    {%- if loop.first %}       WHERE  {% else %}              AND {% endif %}
-    {{- table.name }}.{{ column.name }} = {{ column.source }}{% br %}
+    {%- if loop.first %}        WHERE  {% else %}               AND {% endif %}
+    {{- table.name }}__not_exist.{{ column.name }} = {{ table.name }}.{{ column.name }}{% br %}
   {%- endfrom %}
   {{- indent }}){% br %}
 {% endmacro %}
@@ -466,12 +479,12 @@
   {%- else %}
     {{- indent }}AND NOT EXISTS ({% br %}
   {%- endif %}
-  {{- indent }}       SELECT 1{% br %}
-  {{- indent }}       FROM   [TABLEOWNER].[{{ table.name }}] {{ table.name }}{% br %}
+  {{- indent }}        SELECT 1{% br %}
+  {{- indent }}        FROM   [TABLEOWNER].[{{ table.name }}] {{ table.name }}__not_exist{% br %}
   {%- from table.columns as column where column.linkHashKey %}
     {{- indent }}
-    {%- if loop.first %}       WHERE  {% else %}              AND {% endif %}
-    {{- table.name }}.{{ column.name }} = {{ column.source }}{% br %}
+    {%- if loop.first %}        WHERE  {% else %}               AND {% endif %}
+    {{- table.name }}__not_exist.{{ column.name }} = {{ table.name }}.{{ column.name }}{% br %}
   {%- endfrom %}
   {{- indent }}){% br %}
 {% endmacro %}
@@ -483,15 +496,15 @@
   {%- else %}
     {{- indent }}AND NOT EXISTS ({% br %}
   {%- endif %}
-  {{- indent }}       SELECT 1{% br %}
-  {{- indent }}       FROM   [TABLEOWNER].[{{ table.name }}] {{ table.name }}{% br %}
+  {{- indent }}        SELECT 1{% br %}
+  {{- indent }}        FROM   [TABLEOWNER].[{{ table.name }}] {{ table.name }}__not_exist{% br %}
   {%- from table.columns as column where column.linkHashKey or column.hubHashKey or column.dssStartDate -%} 
     {{- indent }}
-    {%- if loop.first %}       WHERE  {% else %}              AND {% endif %} 
+    {%- if loop.first %}        WHERE  {% else %}               AND {% endif %} 
       {%- if column.dssStartDate %}
-        {{- table.name }}.{{ column.name }} = {{ getSourceTableDssLoadDatetime() }}{% br %}
+        {{- table.name }}__not_exist.{{ column.name }} = {{ table.name }}.{{ dssLoadDate() }}{% br %}
       {%- else -%}
-        {{- table.name }}.{{ column.name }} = {{ column.source }}{% br %}
+        {{- table.name }}__not_exist.{{ column.name }} = {{ table.name }}.{{ column.name }}{% br %}
       {%- endif %}    
   {%- endfrom %}
   {{- indent }}){% br %}
@@ -504,6 +517,31 @@
   {%- endfrom -%}
 {% endmacro %}
 
+{% macro addWhereBKNotExistsRT(indent = "       ",sourceTable = "", targetTable = table.name, firstInClause = true ) %}
+  {%- set empty = "" %}
+  {%- if table.sourceJoinDetails.where | trim == "" and firstInClause  %}
+    {{- indent }}WHERE NOT EXISTS ({% br %}
+  {%- else %}
+    {{- indent }}AND NOT EXISTS ({% br %}
+  {%- endif %}
+  {%- if sourceTable | trim == "" %}
+    {{- indent }}       SELECT 1{% br %}
+    {{- indent }}       FROM   [TABLEOWNER].[{{ targetTable }}] {{ targetTable }}{% br %}
+    {%- from table.columns as column where column.businessKey and column.name != dssLoadDate() %} 
+      {%- if loop.first %}{{- indent }}       WHERE  {% else %}{{- indent }}              AND    {% endif %}
+      {{- column.source }} = {{ targetTable }}.{{ column.name }}{% br %}
+    {%- endfrom %}
+  {%- else %}
+    {{- indent }}       SELECT 1{% br %}
+    {{- indent }}       FROM   {{ sourceTable }} AS t{% br %}
+    {%- from table.columns as column where column.businessKey and column.name != dssLoadDate() %} 
+      {%- if loop.first %}{{- indent }}       WHERE  {% else %}{{- indent }}              AND    {% endif %}
+      {{- empty -}}t.{{ column.name }} = {{ targetTable }}.{{ column.name }}{% br %}
+    {%- endfrom %}    
+  {%- endif %}
+  {{- indent }}){% br %}
+{% endmacro %}
+
 {# --==============================================================================                                                                         -- #}
 {# -- Current Versions                                                                                                                                      -- #}
 {# --==============================================================================                                                                         -- #}
@@ -514,21 +552,21 @@
   {{- indent }}        SELECT{% br %}
   {%- from table.columns as column where column.businessKey %} 
     {{- indent }}
-    {%- if loop.first %}               {% else %}              ,{% endif %}{{ table.name }}.{{ column.name }}{% br %}
+    {%- if loop.first %}               {% else %}              ,{% endif %}{{ table.name }}__current.{{ column.name }} AS {{ column.name }}{% br %}
   {%- endfrom %}
   {%- from table.columns as column where column.dssVersion %} 
-    {{- indent }}              ,MAX({{ table.name }}.{{ column.name }}) AS {{ column.name }}{% br %}
+    {{- indent }}              ,MAX({{ table.name }}__current.{{ column.name }}) AS {{ column.name }}{% br %}
   {%- endfrom %}
-  {{- indent }}        FROM  [TABLEOWNER].[{{ table.name }}] {{ table.name }}{% br %}
+  {{- indent }}        FROM  [TABLEOWNER].[{{ table.name }}] {{ table.name }}__current{% br %}
   {{- indent }}        GROUP BY{% br %}
   {%- from table.columns as column where column.businessKey %} 
     {{- indent }}
-    {%- if loop.first %}               {% else %}              ,{% endif %}{{ table.name }}.{{ column.name }}{% br %}
+    {%- if loop.first %}               {% else %}              ,{% endif %}{{ table.name }}__current.{{ column.name }}{% br %}
   {%- endfrom %}
   {{- indent }}) AS current_rows{% br %}
   {%- from table.columns as column where column.businessKey %} 
     {{- indent }} 
-    {%- if loop.first %}       ON  {% else %}       AND {% endif %}current_rows.{{ column.name }} = {{ column.source }}{% br %}
+    {%- if loop.first %}    ON  {% else %}    AND {% endif %}current_rows.{{ column.name }} = {{ table.name }}.{{ column.name }}{% br %}
   {%- endfrom %}
 {% endmacro %}
 
@@ -538,21 +576,21 @@
   {{- indent }}        SELECT{% br %}
   {%- from table.columns as column where column.hubHashKey or column.linkHashKey %} 
     {{- indent }}
-    {%- if loop.first %}               {% else %}              ,{% endif %}{{ table.name }}.{{ column.name }}{% br %}
+    {%- if loop.first %}               {% else %}              ,{% endif %}{{ table.name }}__current.{{ column.name }} AS {{ column.name }}{% br %}
   {%- endfrom %}
   {%- from table.columns as column where column.dssStartDate or column.dssVersion %} 
-    {{ indent }}                 ,MAX({{ table.name }}.{{ column.name }}) AS {{ column.name }}{% br %}
+    {{- indent }}              ,MAX({{ table.name }}__current.{{ column.name }}) AS {{ column.name }}{% br %}
   {%- endfrom %}
-  {{- indent }}        FROM   [TABLEOWNER].[{{ table.name }}] {{ table.name }}{% br %}
+  {{- indent }}        FROM   [TABLEOWNER].[{{ table.name }}] {{ table.name }}__current{% br %}
   {{- indent }}        GROUP BY{% br %}
   {%- from table.columns as column where column.hubHashKey or column.linkHashKey %} 
     {{- indent }}
-    {%- if loop.first %}               {% else %}              ,{% endif %}{{ table.name }}.{{ column.name }}{% br %}
+    {%- if loop.first %}               {% else %}              ,{% endif %}{{ table.name }}__current.{{ column.name }}{% br %}
   {%- endfrom %}
   {{- indent }}) AS current_rows{% br %}
   {%- from table.columns as column where column.hubHashKey or column.linkHashKey %} 
     {{- indent }}
-    {%- if loop.first %}       ON  {% else %}       AND {% endif %}current_rows.{{ column.name }} = {{ column.source }}{% br %}
+    {%- if loop.first %}    ON  {% else %}    AND {% endif %}current_rows.{{ column.name }} = {{ table.name }}.{{ column.name }}{% br %}
   {%- endfrom %}
 {% endmacro %}
 
@@ -561,24 +599,24 @@
   {{- indent }}        SELECT{% br %}
   {%- from table.columns as column where column.hubHashKey or column.linkHashKey %} 
     {{- indent }}  
-    {%- if loop.first %}               {% else %}              ,{% endif %}{{ column.source }} AS {{ column.name }}{% br %}
+    {%- if loop.first %}               {% else %}              ,{% endif %}{{ column.name }} AS {{ column.name }}{% br %}
   {%- endfrom %}
   {%- from table.columns as column where column.dssStartDate or column.dssVersion %} 
-    {{- indent }}              ,MAX({{ column.source }}) AS {{ column.name }}{% br %}
+    {{- indent }}              ,MAX({{ column.name }}) AS {{ column.name }}{% br %}
   {%- endfrom %}
-  {{- indent }}        FROM   {{ getSourceTableMain(target_database = table.database) }}{% br %}
+  {{- indent }}        FROM   {{ getSourceTableView(target_database = table.database) }}{% br %}
   {{- indent }}        GROUP BY{% br %}
   {%- from table.columns as column where column.hubHashKey or column.linkHashKey %} 
     {{- indent }}
-    {%- if loop.first %}               {% else %}              ,{% endif %}{{ column.source }}{% br %}
+    {%- if loop.first %}               {% else %}              ,{% endif %}{{ column.name }}{% br %}
   {%- endfrom %}
   {{- indent }}) AS current_rows{% br %}
   {%- from table.columns as column where column.hubHashKey or column.linkHashKey %} 
     {{- indent }}
-    {%- if loop.first %}ON  {% else %}       AND {% endif %}current_rows.{{ column.name }} = {{ column.source }}{% br %}
+    {%- if loop.first %}    ON  {% else %}    AND {% endif %}current_rows.{{ column.name }} = {{ table.name }}.{{ column.name }}{% br %}
   {%- endfrom %}
   {%- from table.columns as column where column.dssStartDate or column.dssVersion %} 
-    {{- indent }}AND current_rows.{{ column.name }} = {{ column.source }}{% br %}
+    {{- indent }}    AND current_rows.{{ column.name }} = {{ table.name }}.{{ column.name }}{% br %}
   {%- endfrom %}
 {% endmacro %}
 
@@ -586,11 +624,12 @@
 {# -- Lookup                                                                                                                                                -- #}
 {# --==============================================================================                                                                         -- #}
 
-{% macro addLeftOuterJoinLookup(indent = "   ", firstInClause = true ) %}
+{% macro addLookupDimension(indent = "   ", firstInClause = true ) %}
   {%- from table.columns as column where column.lookupKey -%}
     {%- fetch column.sourceTable -%}
     {%- set columnDescription = column.description.replace("
-"," AND ") -%}
+","
+AND ") -%}
     {{- indent }}LEFT OUTER JOIN [{{ column.sourceTable.database }}].[{{ column.sourceTable.schema }}].[{{ column.sourceTable.name }}] AS {{ column.sourceTable.name }}{% br %}
     {{- indent }}ON {{ getLines(indent,object = columnDescription) }}{% br %}
   {%- endfrom -%}
@@ -605,6 +644,20 @@
     {{- indent }}
     {%- if loop.first and firstInClause %} {% else %},{% endif -%}
       {{ column.name }}{% br %} 
+  {%- endfrom %}
+{% endmacro %}
+
+{% macro addSelectColumnsTimeline(indent = "       ",firstInClause = true) %}
+  {%- from table.columns as column where column.name == "dss_effectivity_datetime" or column.name == "dss_expiry_datetime" or column.dssEndDate %}
+    {{- indent }}
+    {%- if loop.first and firstInClause %} {% else %},{% endif %}
+    {%- if column.dssEndDate -%}
+      LEAD(DATEADD(ns , -100 , {{ dssLoadDate() }}) , 1 , {{ dssDateTimeMaxValue() }}) OVER ( PARTITION BY {{ getHashKeyString() }} ORDER BY {{ dssLoadDate() }} )
+    {%- elseif column.name == "dss_effectivity_datetime" -%}
+      {{ dssEventDate() }}
+    {%- elseif column.name == "dss_expiry_datetime" -%}
+      LEAD(DATEADD(ns , -100 , {{ dssEventDate() }}) , 1 , {{ dssDateTimeMaxValue() }}) OVER ( PARTITION BY {{ getHashKeyString() }} ORDER BY {{ dssEventDate() }}, {{ dssLoadDate() }} )
+    {%- endif %} AS {{ column.name }} {% br %}
   {%- endfrom %}
 {% endmacro %}
 
