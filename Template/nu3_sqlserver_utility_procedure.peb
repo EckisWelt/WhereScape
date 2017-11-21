@@ -2,7 +2,8 @@
 {# --                                                                                                                                                       -- #}
 {# -- DBMS Name          : SQL Server                                                                                                                       -- #}
 {# -- Template Name      : nu3_sqlserver_utility                                                                                                            -- #}
-{# -- Description        : Macros to outline a Stored Procedure (Based on wsl_sqlserver_utility_dv)                                                         -- #}
+{# -- Description        : Macros to outline a Stored Procedure                                                                                             -- #}
+{# --                      (Originally based on wsl_sqlserver_utility_dv)                                                                                   -- #}
 {# --                                                                                                                                                       -- #}
 {# --==============================================================================                                                                         -- #}
 {# --                                                                                                                                                       -- #}
@@ -77,7 +78,7 @@ AS{% br %}
   ,@v_batch_count           INT           -- no of batches run
   ,@v_row_count             INT           -- General row count
   ,@v_return_status         INT           -- Update result status{% br %}
-  ,@v_current_datetime      DATETIME2(7)  -- Used for date insert{% br %}
+  ,@v_current_datetime      {{ dssDateTimeDataType() }}  -- Used for date insert{% br %}
 {% endmacro %}
 
 {% macro addDetailMessage(indent = "    ",message = "") -%}
