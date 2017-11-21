@@ -19,9 +19,11 @@
 {# --==============================================================================                                                                         -- #}
 
 {#- Load utility macros #}
-{%- import "nu3_sqlserver_procedure" -%}
+{%- import "nu3_sqlserver_utility_configuration" -%}
 {%- import "nu3_sqlserver_utility_elements" -%}
 {%- import "nu3_sqlserver_utility_snippets" -%}
+{%- import "nu3_sqlserver_utility_procedure" -%}
+{%- import "nu3_sqlserver_block_stage" -%}
 
 {#- Variables #}
 {%- set templateVersion = "20171108" -%}
@@ -30,6 +32,7 @@
 {%- from table.columns as column where column.businessKey -%}
   {%- set BKColumnsExists = true -%}
 {%- endfrom -%}
+{%- set hasHashKey = false -%}    
 
 {#- Procedure Header#}
   {{- addProcedureDocumentation(templateVersion) }}
@@ -37,7 +40,7 @@
   {{- addProcedureCommentBlock(commentMessage = "MAIN") }}
   SET @v_step = {% counter %}00{% br %}{% br %}
   SET @v_insert_count = 0{% br %}
-  SET @v_current_datetime = SYSDATETIME(){% br %}{% br %}
+  SET @v_current_datetime = {{ currentDatetimeFormula() }}{% br %}{% br %}
   BEGIN TRY{% br %}{% br %}
     {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Source") }}
     {{- addDetailMessage(indent = "    ",message = "Load data from " + getSourceTableString(settings, length = 65)) }}        
@@ -47,9 +50,8 @@
     SET @v_step = {% counter %}00{% br %}{% br %}
     SET @v_sql = N'TRUNCATE TABLE [TABLEOWNER].[{{ table.name }}];'{% br %}
     EXEC @v_return_status = sp_executesql @v_sql{% br %}{% br %}
-   
+
 {#- Create temporary table only if we have to calculate a hash key #}
-    {%- set hasHashKey = false -%}      
     {%- from table.columns as column where (column.hubHashKey or column.linkHashKey or column.changeHashKey) and column.hashKeySources is defined and table.sourceJoinDetails.where | trim != ""  -%}
       {%- set hasHashKey = true -%}      
     {%- endfrom -%}
@@ -79,44 +81,7 @@
       ({% br %}
              {{- addInsertColumns(indent = "            ") }}    
       ){% br %}
-{#- Select Result #}
-      SELECT {{ distinct() }}{% br %}
-             {{- addSelectColumnsResult(indent = "            ") }}
-      FROM   ({% br %}
-{#- Select Lookup #}
-        SELECT {{ table.name }}.*{% br %}
-               {{- addSelectColumnsLookup(indent = "              ",firstInClause = false) }}
-        FROM   ({% br %}
-{#- Select Unique #}
-          SELECT *{% br %}
-                 {%- if BKColumnsExists == true %}{{- addSelectColumnsUnique(indent = "                ",firstInClause = false) }}{%- endif %}
-          FROM   ({% br %}
-{#- Select Hash #}
-            SELECT *{% br %}
-                   {{- addSelectColumnsHash(indent = "                  ",firstInClause = false) }}
-            FROM   ({% br %}
-{#- Select Clean hubHashBK #}
-              SELECT {% br %}
-                     {{- addSelectColumnsHashBKClean(indent = "                    ") }}
-              FROM   ({% br %}      
-{#- Select Extract #}
-              {%- if hasHashKey == true %}
-                SELECT *{% br %}
-                FROM   {{ TempTable }} AS {{ table.name }}{% br %}
-              {%- else %}
-                SELECT {% br %}
-                       {{- addSelectColumnsExtract(indent = "                      ") }}
-                {%- if table.sourceJoinDetails.join | trim != "" %}                {{ getLines(indent="                ",object = table.sourceJoinDetails.join) }}{% br %}{%- endif %}
-                {%- if table.sourceJoinDetails.where | trim != "" %}                {{ getLines(indent="                ",object = table.sourceJoinDetails.where) }}{% br %}{%- endif %}
-                {%- if table.sourceJoinDetails.groupBy | trim != "" %}                {{ getLines(indent="                ",object = table.sourceJoinDetails.groupBy) }}{% br %}{%- endif %}
-              {%- endif %}
-              ) AS {{ table.name }}{% br %}
-            ) AS {{ table.name }}{% br %}
-          ) AS {{ table.name }}{% br %}   
-        ) AS {{ table.name }}{% br %}
-        {%- if BKColumnsExists == true %}        WHERE {{ table.name }}.dss_row_no = 1{% br %}{%- endif %}
-        {{- addLeftOuterJoinLookup(indent="        ") }}        
-      ) AS {{ table.name }}{% br %}
+      {{- addSelectStatement(indent = "      ", TempTable = TempTable,sysObjectType = "TABLE" ) }}
       ;{% br %}{% br %}
       SELECT @v_row_count = @@ROWCOUNT{% br %}{% br %}
     COMMIT{% br %}{% br %}
