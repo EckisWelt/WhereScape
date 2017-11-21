@@ -1,0 +1,128 @@
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- DBMS Name          : SQL Server                                                                                                                       -- #}
+{# -- Template Name      : nu3_sqlserver_utility_configuration                                                                                              -- #}
+{# -- Description        : Macros for configuration parameters                                                                                              -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- History                                                                                                                                               -- #}
+{# -- 20171120 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- Notes                                                                                                                                                 -- #}
+{# -- Unfortunately we can't set variables globally to be used in if clauses.                                                                               -- #}
+{# -- Therefore you need to scan the other templates for '== "'                                                                                             -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+
+{# --==============================================================================                                                                         -- #}
+{# -- System Columns                                                                                                                                        -- #}
+{# -- (not all are used, just for a complete view                                                                                                           -- #}
+{# --==============================================================================                                                                         -- #}
+
+{%- macro dssCreateTime() -%}
+  dss_create_datetime
+{%- endmacro -%}
+
+{%- macro dssUpdateTime() -%}
+  dss_update_datetime
+{%- endmacro -%}
+
+{%- macro dssStartDate() -%}
+  dss_start_datetime    
+{%- endmacro -%}
+
+{%- macro dssEndDate() -%}
+  dss_end_datetime    
+{%- endmacro -%}
+
+{%- macro dssVersion() -%}
+  dss_version   
+{%- endmacro -%}
+
+{%- macro dssCurrentFlag() -%}
+  dss_current_flag    
+{%- endmacro -%}
+
+{%- macro dssChangeHash() -%}
+  dss_change_hash   
+{%- endmacro -%}
+
+{%- macro dssLoadDate() -%}
+  dss_load_datetime
+{%- endmacro -%}
+
+{%- macro dssRecordSource() -%}
+  dss_record_source
+{%- endmacro -%}
+
+{# --==============================================================================                                                                         -- #}
+{# -- Custom Columns                                                                                                                                        -- #}
+{# --==============================================================================                                                                         -- #}
+
+{%- macro dssSequenceNo() -%}
+  dss_sequence_no
+{%- endmacro -%}  
+
+{%- macro dssEventDate() -%}
+  dss_event_datetime
+{%- endmacro -%}
+
+{%- macro dssEffectivityDate() -%}
+  dss_effectivity_datetime
+{%- endmacro -%}
+
+{%- macro dssExpiryDate() -%}
+  dss_expiry_datetime
+{%- endmacro -%}
+
+{%- macro dssRowNo() -%}
+  dss_row_no
+{%- endmacro -%}
+
+{# --==============================================================================                                                                         -- #}
+{# -- Data Type                                                                                                                                             -- #}
+{# --==============================================================================                                                                         -- #}
+
+{%- macro dssDateTimeDataType() -%}
+  DATETIME2(7)
+{%- endmacro -%}
+
+{# --==============================================================================                                                                         -- #}
+{# -- Values                                                                                                                                                -- #}
+{# --==============================================================================                                                                         -- #}
+
+{%- macro dssDateTimeMinValue() -%}
+  '0001-01-01'
+{%- endmacro -%}
+
+{%- macro dssDateTimeMaxValue() -%}
+  '9999-12-31'
+{%- endmacro -%}
+
+{%- macro dssChangeHashDefaultValue() -%}
+  CONVERT(BINARY(16),'')
+{%- endmacro -%}
+
+{# --==============================================================================                                                                         -- #}
+{# -- Formulas                                                                                                                                              -- #}
+{# --==============================================================================                                                                         -- #}
+
+{%- macro dssEndDateFormula() -%}
+  DATEADD(NS,-100,{{ getSourceTableDssLoadDate() }})
+{%- endmacro -%}
+
+{%- macro currentDatetimeFormula() -%}
+  SYSDATETIME()
+{%- endmacro -%}
+
+{# --==============================================================================                                                                         -- #}
+{# -- Others                                                                                                                                                -- #}
+{# --==============================================================================                                                                         -- #}
+
+{%- macro EOS() -%}
+  <EOS>
+{%- endmacro -%}
+
