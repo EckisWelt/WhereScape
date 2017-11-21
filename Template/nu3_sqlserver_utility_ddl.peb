@@ -1,0 +1,21 @@
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- DBMS Name          : SQL Server                                                                                                                       -- #}
+{# -- Template Name      : nu3_sqlserver_utility                                                                                                            -- #}
+{# -- Description        : Macros to outline DDL statements                                                                                                 -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- History                                                                                                                                               -- #}
+{# -- 20171120 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+
+{# -- This macro adds a drop statement -- #}
+{% macro addDropTable(tableTarget = tableTarget) %}
+{%- fetch tableTarget %}
+IF OBJECT_ID('{%- if tableTarget.schema != "" -%}{{ tableTarget.schema }}{% else %}dbo{%- endif -%}.{{ table.name }}', 'U') IS NOT NULL{% br %}
+  DROP TABLE [{%- if tableTarget.schema != "" -%}{{ tableTarget.schema }}{% else %}dbo{%- endif -%}].[{{ table.name }}]{% br %}
+{{ EOS() }}{% br %}
+{% endmacro %}
+
