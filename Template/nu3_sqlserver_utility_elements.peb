@@ -1,669 +1,177 @@
 {# --==============================================================================                                                                         -- #}
 {# --                                                                                                                                                       -- #}
 {# -- DBMS Name          : SQL Server                                                                                                                       -- #}
-{# -- Template Name      : nu3_sqlserver_utility                                                                                                            -- #}
-{# -- Description        : Macros to build SQL parts to be used in other templates                                                                          -- #}
+{# -- Template Name      : nu3_sqlserver_utility_elements                                                                                                   -- #}
+{# -- Description        : Macros to return individual parts to be used in elements                                                                         -- #}
 {# --                                                                                                                                                       -- #}
 {# --==============================================================================                                                                         -- #}
 {# --                                                                                                                                                       -- #}
 {# -- History                                                                                                                                               -- #}
 {# -- 20170711 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
-{# -- 20171101 | Eckhard Zemp         | Document & Clean-Up                                                                                                 -- #}
-{# -- 20171113 | Eckhard Zemp         | Lookup Beautify                                                                                                     -- #}
-{# -- 20171114 | Eckhard Zemp         | Add objects for PIT tables                                                                                          -- #}
-{# -- 20171116 | Eckhard Zemp         | Modify version calculation                                                                                          -- #}
+{# -- 20170828 | Eckhard Zemp         | Add BK to getHashKeyString for Multi-Active Satellites                                                              -- #}
 {# --                                                                                                                                                       -- #}
 {# --==============================================================================                                                                         -- #}
 
-{# --==============================================================================                                                                         -- #}
-{# -- Insert                                                                                                                                                -- #}
-{# --==============================================================================                                                                         -- #}
-
-{# -- This macro adds the target columns for an INSERT statement -- #}
-{# -- Every column is taken -- #}
-{% macro addInsertColumns(indent = "  ",firstInClause = true) %}
-  {%- from table.columns as column -%}
-    {{- indent }}
-    {%- if loop.first and firstInClause %} {% else %},{% endif %}{{ column.name }}{% br %}
-  {%- endfrom %}
-{% endmacro %}
-
-{# --==============================================================================                                                                         -- #}
-{# -- Temporary Table                                                                                                                                       -- #}
-{# --==============================================================================                                                                         -- #}
-
-{# -- This macro adds the target columns for a CREATE statement of a temporary table -- #}
-{# -- No need for system columns -- #}
-{% macro addCreateColumns(indent = "       ",firstInClause = true) %}
-  {%- from table.columns as column where column.createTime == false and column.updateTime == false -%}
-    {{- indent }}
-    {%- if loop.first and firstInClause %} {% else %},{% endif %}{{ column.name }} {{ column.fullDataType }}{% br %} 
-  {%- endfrom %}
-{% endmacro %}
-
-{# -- This macro adds the target columns for an INSERT statement to load data into a temporary table -- #}
-{# -- Like CREATE statement above, no need for system columns -- #}
-{% macro addInsertColumnsTemp(indent = "       ",firstInClause = true) %}
-  {%- from table.columns as column where column.createTime == false and column.updateTime == false -%}
-    {{- indent }}
-    {%- if loop.first and firstInClause %} {% else %},{% endif %}{{ column.name }}{% br %}
-  {%- endfrom %}
-{% endmacro %}
-
-{# -- This macro adds the target columns for a CREATE statement of a temporary table -- #}
-{# -- No need for system columns -- #}
-{% macro addCreateColumnsPIT(indent = "       ",firstInClause = true) %}
-  {%- from table.columns as column where column.hubHashKey or column.name == "snapshot_datetime" -%}
-    {{- indent }}
-    {%- if loop.first and firstInClause %} {% else %},{% endif %}{{ column.name }} {{ column.fullDataType }}{% br %} 
-  {%- endfrom %}
-{% endmacro %}
-
-{# --==============================================================================                                                                         -- #}
-{# -- SELECT statements                                                                                                                                     -- #}
-{# --==============================================================================                                                                         -- #}
-
-{# -- This macro adds the source columns and transformations for a SELECT statement to load data from a source table -- #}
-{# -- This is the 1. step in a STAGE object; also used in the Merge STAGE -- #}
-{% macro addSelectColumnsExtract(indent = "       ",firstInClause = true) %}
-  {%- from table.columns as column where (column.sourceTable is defined or column.transform != "") and column.lookupKey == false %}
-    {{- indent }}
-    {%- if loop.first and firstInClause %} {% else %},{% endif %}
-    {%- if column.transform | trim != "" -%}
-      {{- getLines(indent + " ",object = column.transform) }}
-    {%- else -%}
-      {{ column.source }}
-    {%- endif %} AS {{ column.name }} {% br %}
-  {%- endfrom %}
-{% endmacro %}
-
-{# -- This macro adds the source columns and transformation for a merge SELECT statement to load data from a source table -- #}
-{% macro addSelectColumnsExtractMerge(indent = "       ",firstInClause = true) %}
-  {%- from table.columns as column where (column.sourceTable is defined or column.transform != "") and column.lookupKey == false %}
-    {{- indent }}
-    {%- if loop.first and firstInClause %} {% else %},{% endif %}
-    {%- if column.transform | trim != "" -%}
-      {{- getLines(indent + " ",object = column.transform) }}
-    {%- else -%}
-      {%- fetch column.sourceColumn -%}      
-      {{ column.sourceColumn.name }}
-    {%- endif %} AS {{ column.name }} {% br %}
-  {%- endfrom %}
-{% endmacro %}
-
-{# -- This macro adds the source columns and cleans the business key columns for hashing -- #}
-{# -- This is the 2. step in a STAGE object -- #}
-{% macro addSelectColumnsHashBKClean(indent = "       ",firstInClause = true) %}
-  {%- from table.columns as column where (column.sourceTable is defined or column.transform != "") and column.lookupKey == false %}
-    {{- indent }}
-    {%- if loop.first and firstInClause %} {% else %},{% endif %}
-    {%- set isBKColumn = false %}
-    {%- for hashColumn in table.columns %}
-      {%- if hashColumn.hubHashKey or hashColumn.linkHashKey -%}
-        {%- for hashSource in hashColumn.hashKeySources -%}
-          {%- if column.name == hashSource.name -%}
-            {%- set isBKColumn = true %}          
-          {%- endif %}
-        {%- endfor %}
-      {%- endif %}
-    {%- endfor %}
-    {%- if isBKColumn == true -%}
-      {{ getBKCleaned(BKColumn = column) }} 
-    {%- else -%}
-      {{ column.name }}
-    {%- endif %} AS {{ column.name }}{% br %}
-  {%- endfrom %}    
-{% endmacro %}
-
-{# -- This macro adds the hash columns -- #}
-{# -- This is the 3. step in a STAGE object -- #}
-{% macro addSelectColumnsHash(indent = "       ",firstInClause = true) %}
-  {%- from table.columns as column where (column.hubHashKey or column.linkHashKey or column.changeHashKey) and column.hashKeySources is defined -%}
-    {{- indent -}}
-    {%- if loop.first and firstInClause %} {% else %},{% endif %}
-    {%- if column.hubHashKey -%}
-      {{ getHubHashKey(hashColumn = column, indent = indent + "    ") }} 
-    {%- elseif column.linkHashKey -%}
-      {{ getLinkHashKey(hashColumn = column, indent = indent + "    ") }} 
-    {%- elseif column.changeHashKey -%}
-      {{ getChangeHashKey(hashColumn = column, indent = indent + "    ") }}
-    {%- endif %} AS {{ column.name }}{% br %}
-  {%- endfrom %}
-{% endmacro %}
-
-{# -- This macro adds a row_number column to remove duplicates -- #}
-{# -- This is the 4. step in a STAGE object. Last row will be retrieved -- #}
-{% macro addSelectColumnsUnique(indent = "       ",firstInClause = true) %}
-  {{- indent -}},ROW_NUMBER() OVER (PARTITION BY {{ getBKString() }} ORDER BY {% from table.columns as column where column.name == "dss_load_datetime" or column.name == "dss_sequence_no" %}
-    {%- if not loop.first -%}, {% endif %}
-    {{- column.name }} DESC
-  {%- endfrom %}) AS {{ dssRowNo() }}{% br %}
-{% endmacro %}
-
-{# -- This macro adds the columns for dimension lookups -- #}
-{# -- This is the 5. step in a STAGE object -- #}
-{% macro addSelectColumnsLookup(indent = "       ",firstInClause = true) %}
-  {%- from table.columns as column where column.lookupKey -%}
-    {{- indent -}}
-    {%- if loop.first and firstInClause %} {% else %},{% endif -%}  
-    COALESCE({{ column.source }},0) AS {{ column.name }}{% br %}
-  {%- endfrom %}
-{% endmacro %}
-
-{# -- This macro adds the columns for the final result -- #}
-{# -- This is the final step in a STAGE object -- #}
-{% macro addSelectColumnsResult(indent = "       " , sysObjectType = "TABLE" , firstInClause = true) %}
-  {%- from table.columns as column %}
-    {{- indent }}
-    {%- if loop.first and firstInClause %} {% else %},{% endif %}
-    {%- if column.dssStartDate -%}
-      {%- if table.objectType == Types.ObjectType.DataStore -%}
-                     CASE WHEN current_rows.{{ getFirstBK() }} IS NULL{% br %}
-        {{- indent }}      THEN CAST({{ dssDateTimeMinValue() }} AS {{ dssDateTimeDataType() }}){% br %}
-        {{- indent }}      ELSE {{ table.name }}.{{ dssLoadDate() }}{% br %}
-        {{- indent }} END
-      {%- else -%}
-        {{ table.name }}.{{ dssLoadDate() }}
-      {%- endif %}            
-    {%- elseif column.dssEndDate -%}
-      CAST({{ dssDateTimeMaxValue() }} AS {{ dssDateTimeDataType() }})
-    {%- elseif column.dssVersion -%}
-                   CASE WHEN current_rows.{{ getFirstBK() }} IS NULL{% br %}
-      {{- indent }}      THEN 1{% br %}
-      {{- indent }}      ELSE current_rows.{{ column.name }} + {{ dssRowNo() }}{% br %}
-      {{- indent }} END
-    {%- elseif column.currentFlag -%}
-      'Y'
-    {%- elseif column.updateTime or column.createTime -%}
-      {%- if column.sourceTable is defined -%}
-        {%- fetch column.sourceColumn -%}      
-        {{ column.sourceColumn.name }}
-      {%- elseif sysObjectType == "TABLE" -%}
-        @v_current_datetime
-      {%- elseif sysObjectType == "VIEW" -%}
-        {{ currentDatetimeFormula() }}
-      {%- else -%}
-        MISSING FORMULA
-      {%- endif -%}
-    {%- else -%}
-      {{ table.name }}.{{ column.name }}
-    {%- endif %} AS {{ column.name }} {% br %}
-  {%- endfrom %}
-{% endmacro %}
-
-{# --==============================================================================                                                                         -- #}
-{# -- Stage Table (Record Tracking)                                                                                                                         -- #}
-{# --==============================================================================                                                                         -- #}
-
-{% macro addSelectColumnsRTStage(indent = "       ",firstInClause = true) %}
-  {%- from table.columns as column where column.createTime == false and column.updateTime == false -%}
-    {{- indent }}
-    {%- if loop.first and firstInClause %} {% else %},{% endif %}
-    {%- if column.name == "is_active" -%}
-      1 AS is_active{% br %} 
-    {%- elseif column.name == "is_full" -%}
-      CASE WHEN @load_table_available = 1 THEN CASE WHEN @load_table_data = 1 THEN 1 ELSE 0 END ELSE 1 END AS is_full{% br %}
-    {%- else -%}
-      {{ column.name }}{% br %} 
-    {%- endif -%}
-  {%- endfrom %}
-{% endmacro %}
-
-{% macro addSelectColumnsRTLoad(indent = "       ",firstInClause = true) %}
-  {%- from table.columns as column where column.createTime == false and column.updateTime == false -%}
-    {{- indent }}
-    {%- if loop.first and firstInClause %} {% else %},{% endif %}
-    {%- if column.name == "is_active" -%}
-      1 AS is_active{% br %} 
-    {%- elseif column.name == "is_full" -%}
-      1 AS is_full{% br %}
-    {%- else -%}
-      {{ column.name }}{% br %} 
-    {%- endif -%}
-  {%- endfrom %}
-{% endmacro %}
-
-{% macro addSelectColumnsRTHistory(indent = "       ",firstInClause = true) %}
-  {%- from table.columns as column where column.createTime == false and column.updateTime == false -%}
-    {{- indent }}
-    {%- if loop.first and firstInClause %} {% else %},{% endif %}
-    {%- if column.name == "is_active" -%}
-      0 AS is_active{% br %} 
-    {%- elseif column.name == "is_full" -%}
-      1 AS is_full{% br %}
-    {%- elseif column.name == "dss_load_datetime" -%}      
-      {{ currentDatetimeFormula() }} as {{ dssLoadDate() }}{% br %}
-    {%- else -%}
-      {{ column.name }}{% br %} 
-    {%- endif -%}
-  {%- endfrom %}
-{% endmacro %}
-
-{# --==============================================================================                                                                         -- #}
-{# -- History Table                                                                                                                                         -- #}
-{# --==============================================================================                                                                         -- #}
-
-{% macro addUpdateColumnsHistory(indent = "       ",firstInClause = true) %}
-  {%- from table.columns as column where column.dssEndDate or column.currentFlag or column.updateTime %}
-    {{- indent }}
-    {%- if loop.first and firstInClause %}SET    {% else %}      ,{% endif %}
-    {%- if column.dssEndDate -%}
-      {{ column.name }} = {{ dssEndDateFormula() }}
-    {%- elseif column.currentFlag -%}
-      {{ column.name }} = 'N'
-    {%- elseif column.updateTime -%}
-      {{ column.name }} = @v_current_datetime      
-    {%- endif %}{% br %}
-  {%- endfrom %}
-{% endmacro %}
-
-{# --==============================================================================                                                                         -- #}
-{# -- Dimension Table                                                                                                                                       -- #}
-{# --==============================================================================                                                                         -- #}
-
-{# -- This macro adds the target columns for an INSERT statement to load data into a dimension table -- #}
-{# -- Either including or excluding the artificial dimension key column -- #}
-{% macro addInsertColumnsDim(indent = "  ",firstInClause = true,artificialInsert = false) %}
-  {%- if artificialInsert == false %}    
-    {%- from table.columns as column where column.artificial == false %}
-      {{- indent }}
-      {%- if loop.first and firstInClause %} {% else %},{% endif %}{{ column.name }}{% br %}
-    {%- endfrom %}
-  {%- else %}
-    {%- from table.columns as column %}
-      {{- indent }}
-      {%- if loop.first and firstInClause %} {% else %},{% endif %}{{ column.name }}{% br %}
-    {%- endfrom %}  
-  {%- endif %}
-{% endmacro %}
-
-{# -- This macro adds the source columns and transformations for a SELECT statement to load data from a source table -- #}
-{% macro addSelectColumnsDim(indent = "       ",firstInClause = true,artificialInsert = false) %}
-  {%- if artificialInsert == false %}
-  {%- from table.columns as column where column.artificial == false %}
-    {{- indent }}
-    {%- if loop.first and firstInClause %} {% else %},{% endif %}
-    {%- if column.updateTime or column.createTime -%} 
-      @v_current_datetime    
-    {%- elseif column.transform | trim != "" -%}
-      {{ column.transform | trim }}
-    {%- else -%}
-      {{ column.source }}
-    {%- endif %} AS {{ column.name }} {% br %}
-  {%- endfrom %}
-  {%- else %}
-  {%- from table.columns as column %}
-    {{- indent }}
-    {%- if loop.first and firstInClause %} {% else %},{% endif %}
-    {%- if column.updateTime or column.createTime -%} 
-      @v_current_datetime    
-    {%- elseif column.transform | trim != "" -%}
-      {{ column.transform | trim }}
-    {%- else -%}
-      {{ column.source }}
-    {%- endif %} AS {{ column.name }} {% br %}
-  {%- endfrom %}
-  {%- endif %}  
-{% endmacro %}
-
-{# -- This macro adds the target columns of a zero key row for an INSERT statement to load data into a dimension table  -- #}
-{# -- Only artificial key column, business key columns and system columns are needed -- #}
-{% macro addInsertColumnsDimZeroKey(indent = "       ",firstInClause = true) %}
-  {%- from table.columns as column where column.artificial or column.businessKey or column.createTime or column.updateTime or column.name == dssLoadDate() -%}
-    {{- indent }}
-    {%- if loop.first and firstInClause %} {% else %},{% endif %}{{ column.name }}{% br %}
-  {%- endfrom %}
-{% endmacro %}
-
-{# -- This macro adds the source values of a zero key row to load it into a dimension table  -- #}
-{% macro addSelectColumnsDimZeroKey(indent = "       ",firstInClause = true) %}
-  {%- from table.columns as column where column.artificial or column.businessKey or column.createTime or column.updateTime or column.name == dssLoadDate() %}
-    {{- indent }}
-    {%- if loop.first and firstInClause %} {% else %},{% endif %}
-    {%- if column.artificial -%}
-      0
-    {%- elseif column.businessKey -%}
-      '{{ column.zeroKeyValue }}'
-    {%- elseif column.updateTime or column.createTime -%} 
-      @v_current_datetime
-    {%- elseif column.name == "dss_load_datetime" -%} 
-      {{ dssDateTimeMinValue() }}
-    {%- endif %}{% br %}
-  {%- endfrom %}
-{% endmacro %}
-
-{# -- This macro adds the SET columns for an UPDATE statement to modify data in a dimension table -- #}
-{% macro addUpdateColumnsDim(indent = "    ",firstInClause = true) %}
-  {%- set empty = "" %}
-  {%- from table.columns as column where column.artificial == false %}
-    {{- indent }}
-    {%- if loop.first and firstInClause %}SET     {% else %}       ,{% endif %}{{ column.name }} = {{ empty }}
-    {%- if column.transform | trim != "" -%}
-      {{ column.transform | trim }}
-    {%- elseif column.updateTime or column.createTime -%} 
-      @v_current_datetime
-    {%- else -%}
-      {{ column.source }}
-    {%- endif %}{% br %}
-  {%- endfrom %}
-{% endmacro %}
-
-{# -- This macro adds the source columns for a VIEW statement to load data into a cube -- #}
-{% macro addSelectColumnsDimCube(indent = "       ",firstInClause = true) %}
-  {%- set empty = "" %}
-  {%- from table.columns as column where column.sourceTable is defined or column.transform != "" %}
-   {{- indent }}
-    {%- if loop.first and firstInClause %} {% else %},{% endif %}
-    {%- if column.transform | trim != "" -%}
-      {{ column.transform | trim }}
-    {%- else -%}
-      {%- fetch column.sourceColumn -%}      
-      {%- if column.sourceColumn.fullDataType != column.fullDataType and column.artificial == false -%}
-        CAST(
-      {%- endif -%}        
-      {%- if column.sourceColumn.zeroKeyValue | trim != "" and column.artificial == false and column.businessKey == false -%}
-        COALESCE({{ column.source }},'{{ column.sourceColumn.zeroKeyValue }}')
-      {%- else -%}
-        {{ column.source }}
-      {%- endif -%}
-      {%- if column.sourceColumn.fullDataType != column.fullDataType and column.artificial == false -%}
-        {{ empty }} AS {{ column.fullDataType }})
-      {%- endif -%}              
-    {%- endif %} AS {{ column.name }} {% br %}
-  {%- endfrom %}
-{% endmacro %}
-
-{# --==============================================================================                                                                         -- #}
-{# -- WHERE clauses                                                                                                                                         -- #}
-{# --==============================================================================                                                                         -- #}
-
-{# -- This macro inserts the where clause for the max(dss_load_datetime) of the target -- #}
-{% macro addWhereDssLoadDateMax(indent = "    ",targetTable = "MISSING") %}
-  {{- indent }}WHERE  {{ dssLoadDate() }} > ( SELECT ISNULL(MAX({{ dssLoadDate() }}) , {{ dssDateTimeMinValue() }}) FROM [TABLEOWNER].[{{ targetTable }}]){% br %}
-{% endmacro %}
-
-{% macro addWhereBKColumns(indent = "       ", firstInClause = true ) %}
-  {%- from table.columns as column where column.businessKey -%}
-    {{- indent }}
-    {%- if loop.first and firstInClause %}WHERE  {% else %}       AND {% endif %}{{ table.name }}.{{ column.name }} = {{ column.source }}{% br %}    
-  {%- endfrom -%}
-{% endmacro %}
-
-{% macro addWhereLDTColumn(indent = "       ", firstInClause = true ) %}
-  {%- from table.columns as column where column.name == "dss_load_datetime -%}
-    {{- indent }}
-    {%- if loop.first and firstInClause %}WHERE  {% else %}       AND {% endif %}{{ table.name }}.{{ column.name }} <> {{ column.source }}{% br %}    
-  {%- endfrom -%}
-{% endmacro %}
-
-{% macro addWhereCurrentFlagColumns(indent = "       ", firstInClause = true ) %}
-  {%- from table.columns as column where column.currentFlag -%}
-    {{- indent }}
-    {%- if loop.first and firstInClause %}WHERE  {% else %}       AND {% endif %}{{ table.name }}.{{ column.name }} = 'Y'{% br %}    
-  {%- endfrom -%}
-{% endmacro %}
-
-{% macro addWhereChangingColumns(indent = "       ", firstInClause = true ) %}
-  {%- set hasChangingColumn = "0" -%}
-  {{- indent }}       AND ({% br %}
-  {%- from table.columns as column where column.slowlyChanging-%}
-    {{- indent }}
-    {%- if loop.first %}              {% else %}              OR {% endif %}{{ table.name }}.{{ column.name }} <> {{ column.source }}{% br %}    
-    {%- set hasChangingColumn = "1" -%}
-  {%- endfrom -%}
-  {%- if hasChangingColumn == "1" -%}
-    {{- indent }}           ){% br %}
-  {%- else -%}
-    MISSING_CHANGEHASH --> SET THE CHANGEHASH IN THE COLUMNLIST{% br %}
+{# --This macro adds the distinct keyword if configured -- #}
+{% macro distinct() %}
+  {%- if table.sourceJoinDetails.distinct is not empty %}
+    {%- if table.sourceJoinDetails.distinct -%}DISTINCT {%- endif -%}
+  {%- elseif table.viewInfo.distinct is not empty %}
+    {%- if table.viewInfo.distinct -%}DISTINCT {%- endif -%}
   {%- endif -%}
 {% endmacro %}
-  
-{% macro addWhereBKNotExists(indent = "       ", firstInClause = true ) %}
-  {%- if table.sourceJoinDetails.where | trim == "" and firstInClause  %}
-    {{- indent }}WHERE NOT EXISTS ({% br %}
-  {%- else %}
-    {{- indent }}AND NOT EXISTS ({% br %}
-  {%- endif %}
-  {{- indent }}        SELECT 1{% br %}
-  {{- indent }}        FROM   [TABLEOWNER].[{{ table.name }}] {{ table.name }}__not_exist{% br %}
-  {%- from table.columns as column where column.businessKey and column.name != dssLoadDate() %} 
-    {{- indent }}
-    {%- if loop.first %}        WHERE  {% else %}               AND {% endif %}
-    {{- table.name }}__not_exist.{{ column.name }} = {{ table.name }}.{{ column.name }}{% br %}
-  {%- endfrom %}
-  {{- indent }}){% br %}
+
+{# -- This macro adds hub hash key calculations -- #}
+{% macro getBKCleaned(BKColumn) %}
+  {%- if BKColumn.dataType == "char" or BKColumn.dataType == "varchar" or BKColumn.dataType == "nchar" or BKColumn.dataType == "nvarchar" -%}
+    UPPER(LTRIM(RTRIM(COALESCE(NULLIF({{ BKColumn.name }},''),'-1'))))
+  {%- elseif BKColumn.dataType == "tinyint" or BKColumn.dataType == "smallint" or BKColumn.dataType == "int" or BKColumn.dataType == "bigint" -%}
+    COALESCE({{ BKColumn.name }},-1)
+  {%- elseif BKColumn.dataType == "date" or BKColumn.dataType == "datetime2" -%}    
+    COALESCE({{ BKColumn.name }},'0001-01-01')  
+  {%- else -%}
+    ALERT: Transformation in getBKCleaned() missing
+  {%- endif -%}
 {% endmacro %}
 
-{# -- This macro inserts the where not exists query for a history -- #}
-{% macro addWhereHistoryNotExists(indent = "        ", firstInClause = true ) %}
-  {%- if table.sourceJoinDetails.where | trim == "" and firstInClause %}
-    {{- indent }}WHERE NOT EXISTS ({% br %}
-  {%- else %}
-    {{- indent }}AND NOT EXISTS ({% br %}
-  {%- endif %}
-  {{- indent }}        SELECT 1{% br %}
-  {{- indent }}        FROM   [TABLEOWNER].[{{ table.name }}] {{ table.name }}__not_exist{% br %}
-  {%- from table.columns as column where column.businessKey or column.slowlyChanging or column.currentFlag %} 
-    {{- indent }}
-    {%- if loop.first %}        WHERE  {% else %}               AND {% endif %} 
-    {%- if column.currentFlag %}
-      {{- table.name }}__not_exist.{{ column.name }} = 'Y'{% br %}
-    {%- else %}
-      {{- table.name }}__not_exist.{{ column.name }} = {{ table.name }}.{{ column.name }}{% br %}
+{# -- This macro adds hub hash key calculations -- #}
+{% macro getHubHashKey(hashColumn, indent = "               ") %}
+  {%- set hashFunctionPatBeg  = "HASHBYTES('md5'," -%}
+  {%- set hashFunctionPatEnd  = ")" -%}
+  {%- set hashColTransPattern = "CAST([SRCCOL] AS NVARCHAR(MAX))" -%}
+  {%- set hashConcatPattern   = " +'||'+" -%}
+  {%- if hashColumn.dataType == "char" %}CONVERT({{ hashColumn.fullDataType | upper }},{% endif %}
+  {%- for hashSource in hashColumn.hashKeySources -%}
+    {%- if loop.first -%}
+      {{- hashFunctionPatBeg -}}{%br%}
+    {%- endif -%}
+    {{ indent }}{{- hashColTransPattern.replace("[SRCCOL]",hashSource.name) -}}
+    {%- if not loop.last -%}
+      {{- hashConcatPattern -}}{%br%}
+    {%- else -%}
+      {%br%}{{ indent }}{{- hashFunctionPatEnd -}}
+    {%- endif -%}
+  {%- endfor -%}
+  {%- if hashColumn.dataType == "char" %},2){% endif %}  
+{% endmacro %}
+
+{# -- This macro adds link hash key calculations -- #}
+{% macro getLinkHashKey(hashColumn, indent = "               ") %}
+  {%- set hashFunctionPatBeg  = "HASHBYTES('md5'," -%}
+  {%- set hashFunctionPatEnd  = ")" -%}
+  {%- set hashColTransPattern = "CAST([SRCCOL] AS NVARCHAR(MAX))" -%}
+  {%- set hashConcatPattern   = " +'||'+" -%}
+  {%- if hashColumn.dataType == "char" %}CONVERT({{ hashColumn.fullDataType | upper }},{% endif %}
+  {%- for hashSource in hashColumn.hashKeySources -%}
+    {%- if loop.first -%}
+      {{- hashFunctionPatBeg -}}{%br%}
+    {%- endif -%}
+    {{ indent }}{{- hashColTransPattern.replace("[SRCCOL]",hashSource.name) -}}
+    {%- if not loop.last -%}
+      {{- hashConcatPattern -}}{%br%}
+    {%- else -%}
+      {%br%}{{ indent }}{{- hashFunctionPatEnd -}}
+    {%- endif -%}
+  {%- endfor -%}
+  {%- if hashColumn.dataType == "char" %},2){% endif %}    
+{% endmacro %}
+
+{# -- This macro adds change hash key calculations -- #}
+{% macro getChangeHashKey(hashColumn, indent = "               ") %}
+  {%- set hashFunctionPatBeg  = "HASHBYTES('md5'," -%}
+  {%- set hashFunctionPatEnd  = ")" -%}
+  {%- set hashColTransPattern = "COALESCE(CAST([SRCCOL] AS NVARCHAR(MAX)),'')" -%}
+  {%- set hashConcatPattern   = " +'||'+" -%}
+  {%- set hashStr = "" -%}
+  {%- if hashColumn.dataType == "char" %}CONVERT({{ hashColumn.fullDataType | upper }},{% endif %}
+  {%- for stuff in hashColumn.hashKeySources -%}
+    {%- set hashStr = hashStr + stuff.name -%}
+    {%- if not loop.last %}{% set hashStr = hashStr + "
+" -%}
+    {%- endif -%}
+  {%- endfor -%}
+  {%- for hashColumn in hashStr | lines | sort -%}  
+   {%- if loop.first -%}
+      {{- hashFunctionPatBeg -}}{%br%}
+    {%- endif -%}
+    {{- indent -}}{{- hashColTransPattern.replace("[SRCCOL]",hashColumn) -}}
+    {%- if not loop.last -%}
+      {{- hashConcatPattern -}}{%br%}
+    {%- else -%}
+      {%br%}{{- indent }}{{- hashFunctionPatEnd -}}
+    {%- endif -%}
+  {%- endfor -%}
+  {%- if hashColumn.dataType == "char" %},2){% endif %}    
+{% endmacro %}
+
+# -- This macro returns a string of business keys used for row_number -- #}
+{% macro getBKString() %}
+  {%- from table.columns as column where column.businessKey %}
+    {%- if not loop.first%} , {% endif %}{{ column.name }}
+  {%- endfrom %}
+{% endmacro %}
+
+# -- This macro returns a string of hash keys used for row_number -- #}
+{% macro getHashKeyString() %}
+  {%- from table.columns as column where column.hubHashKey or column.linkHashKey %}
+    {%- if not loop.first%} , {% endif %}{{ column.name }}
+  {%- endfrom %}
+{% endmacro %}
+
+{% macro getSourceTableString(settings , length = 80) %}
+  {%- set string = "" -%}
+  {%- fetch settings.sourceTablesByName %}  
+  {%- from settings.sourceTablesByName as src %}
+    {%- if not loop.first%}{%- set string = string + " , " %}{% endif %}{%- set string = string + src.key -%}
+  {%- endfrom -%}
+  {{- string | abbreviate(length) -}}
+{% endmacro %}
+
+{% macro getFirstSourceTable(settings) %}
+  {%- set empty = "" %}
+  {%- fetch settings.sourceTablesByName %}  
+  {%- from settings.sourceTablesByName as src %}
+    {%- if loop.first %}
+      {{- empty }}{{ src.key }}
     {%- endif %}
   {%- endfrom %}
-  {{- indent }}){% br %}  
 {% endmacro %}
 
-{# -- This macro inserts the where not exists query for a hub -- #}
-{% macro addWhereHubNotExists(indent="      ", firstInClause = true) %}
-  {%- if table.sourceJoinDetails.where | trim == "" and firstInClause %}
-    {{- indent }}WHERE NOT EXISTS ({% br %}
-  {%- else %}
-    {{- indent }}AND NOT EXISTS ({% br %}
-  {%- endif %}
-  {{- indent }}        SELECT 1{% br %}
-  {{- indent }}        FROM   [TABLEOWNER].[{{ table.name }}] {{ table.name }}__not_exist{% br %}
-  {%- from table.columns as column where column.hubHashKey %} 
-    {{- indent }}
-    {%- if loop.first %}        WHERE  {% else %}               AND {% endif %}
-    {{- table.name }}__not_exist.{{ column.name }} = {{ table.name }}.{{ column.name }}{% br %}
-  {%- endfrom %}
-  {{- indent }}){% br %}
-{% endmacro %}
-
-{# -- This macro inserts the where not exists query for a link -- #}
-{% macro addWhereLinkNotExists(indent="      ", firstInClause = true) %}
-  {%- if table.sourceJoinDetails.where | trim == "" and firstInClause %}
-    {{- indent }}WHERE NOT EXISTS ({% br %}
-  {%- else %}
-    {{- indent }}AND NOT EXISTS ({% br %}
-  {%- endif %}
-  {{- indent }}        SELECT 1{% br %}
-  {{- indent }}        FROM   [TABLEOWNER].[{{ table.name }}] {{ table.name }}__not_exist{% br %}
-  {%- from table.columns as column where column.linkHashKey %}
-    {{- indent }}
-    {%- if loop.first %}        WHERE  {% else %}               AND {% endif %}
-    {{- table.name }}__not_exist.{{ column.name }} = {{ table.name }}.{{ column.name }}{% br %}
-  {%- endfrom %}
-  {{- indent }}){% br %}
-{% endmacro %}
-
-{# -- This macro inserts the where not exists query for a satellite -- #}
-{% macro addWhereSatNotExists(indent="      ", firstInClause = true) %}
-  {%- if table.sourceJoinDetails.where | trim == "" and firstInClause %}
-    {{- indent }}WHERE NOT EXISTS ({% br %}
-  {%- else %}
-    {{- indent }}AND NOT EXISTS ({% br %}
-  {%- endif %}
-  {{- indent }}        SELECT 1{% br %}
-  {{- indent }}        FROM   [TABLEOWNER].[{{ table.name }}] {{ table.name }}__not_exist{% br %}
-  {%- from table.columns as column where column.linkHashKey or column.hubHashKey or column.dssStartDate -%} 
-    {{- indent }}
-    {%- if loop.first %}        WHERE  {% else %}               AND {% endif %} 
-      {%- if column.dssStartDate %}
-        {{- table.name }}__not_exist.{{ column.name }} = {{ table.name }}.{{ dssLoadDate() }}{% br %}
-      {%- else -%}
-        {{- table.name }}__not_exist.{{ column.name }} = {{ table.name }}.{{ column.name }}{% br %}
-      {%- endif %}    
-  {%- endfrom %}
-  {{- indent }}){% br %}
-{% endmacro %}
-
-{% macro addWhereDimZeroKeyNotExists(indent = "       ", firstInClause = true ) %}
-  {%- from table.columns as column where column.artificial -%}
-    {{- indent }}
-    {%- if loop.first and firstInClause %}WHERE  {% else %}       AND {% endif %}{{ table.name }}.{{ column.name }} = 0{% br %}    
-  {%- endfrom -%}
-{% endmacro %}
-
-{% macro addWhereBKNotExistsRT(indent = "       ",sourceTable = "", targetTable = table.name, firstInClause = true ) %}
+{% macro getSourceTableDssLoadDate() %}
   {%- set empty = "" %}
-  {%- if table.sourceJoinDetails.where | trim == "" and firstInClause  %}
-    {{- indent }}WHERE NOT EXISTS ({% br %}
-  {%- else %}
-    {{- indent }}AND NOT EXISTS ({% br %}
-  {%- endif %}
-  {%- if sourceTable | trim == "" %}
-    {{- indent }}       SELECT 1{% br %}
-    {{- indent }}       FROM   [TABLEOWNER].[{{ targetTable }}] {{ targetTable }}{% br %}
-    {%- from table.columns as column where column.businessKey and column.name != dssLoadDate() %} 
-      {%- if loop.first %}{{- indent }}       WHERE  {% else %}{{- indent }}              AND    {% endif %}
-      {{- column.source }} = {{ targetTable }}.{{ column.name }}{% br %}
-    {%- endfrom %}
-  {%- else %}
-    {{- indent }}       SELECT 1{% br %}
-    {{- indent }}       FROM   {{ sourceTable }} AS t{% br %}
-    {%- from table.columns as column where column.businessKey and column.name != dssLoadDate() %} 
-      {%- if loop.first %}{{- indent }}       WHERE  {% else %}{{- indent }}              AND    {% endif %}
-      {{- empty -}}t.{{ column.name }} = {{ targetTable }}.{{ column.name }}{% br %}
-    {%- endfrom %}    
-  {%- endif %}
-  {{- indent }}){% br %}
-{% endmacro %}
-
-{# --==============================================================================                                                                         -- #}
-{# -- Current Versions                                                                                                                                      -- #}
-{# --==============================================================================                                                                         -- #}
-
-{# -- This macro inserts the query to find the current row for a history -- #}
-{% macro addHistoryCurrentVersion(indent ="        ") %}
-  {{- indent }}LEFT OUTER JOIN ({% br %}
-  {{- indent }}        SELECT{% br %}
-  {%- from table.columns as column where column.businessKey %} 
-    {{- indent }}
-    {%- if loop.first %}               {% else %}              ,{% endif %}{{ table.name }}__current.{{ column.name }} AS {{ column.name }}{% br %}
-  {%- endfrom %}
-  {%- from table.columns as column where column.dssVersion %} 
-    {{- indent }}              ,MAX({{ table.name }}__current.{{ column.name }}) AS {{ column.name }}{% br %}
-  {%- endfrom %}
-  {{- indent }}        FROM  [TABLEOWNER].[{{ table.name }}] {{ table.name }}__current{% br %}
-  {{- indent }}        GROUP BY{% br %}
-  {%- from table.columns as column where column.businessKey %} 
-    {{- indent }}
-    {%- if loop.first %}               {% else %}              ,{% endif %}{{ table.name }}__current.{{ column.name }}{% br %}
-  {%- endfrom %}
-  {{- indent }}) AS current_rows{% br %}
-  {%- from table.columns as column where column.businessKey %} 
-    {{- indent }} 
-    {%- if loop.first %}    ON  {% else %}    AND {% endif %}current_rows.{{ column.name }} = {{ table.name }}.{{ column.name }}{% br %}
+  {%- from table.columns as column where column.name == "dss_load_datetime" %}
+    {{- empty }}{{ column.source }}
   {%- endfrom %}
 {% endmacro %}
 
-{# -- This macro inserts the query to find the current row for a satellite -- #}
-{% macro addSatCurrentVersion(indent ="        ") %}
-  {{- indent }}LEFT OUTER JOIN ({% br %}
-  {{- indent }}        SELECT{% br %}
-  {%- from table.columns as column where column.hubHashKey or column.linkHashKey %} 
-    {{- indent }}
-    {%- if loop.first %}               {% else %}              ,{% endif %}{{ table.name }}__current.{{ column.name }} AS {{ column.name }}{% br %}
-  {%- endfrom %}
-  {%- from table.columns as column where column.dssStartDate or column.dssVersion %} 
-    {{- indent }}              ,MAX({{ table.name }}__current.{{ column.name }}) AS {{ column.name }}{% br %}
-  {%- endfrom %}
-  {{- indent }}        FROM   [TABLEOWNER].[{{ table.name }}] {{ table.name }}__current{% br %}
-  {{- indent }}        GROUP BY{% br %}
-  {%- from table.columns as column where column.hubHashKey or column.linkHashKey %} 
-    {{- indent }}
-    {%- if loop.first %}               {% else %}              ,{% endif %}{{ table.name }}__current.{{ column.name }}{% br %}
-  {%- endfrom %}
-  {{- indent }}) AS current_rows{% br %}
-  {%- from table.columns as column where column.hubHashKey or column.linkHashKey %} 
-    {{- indent }}
-    {%- if loop.first %}    ON  {% else %}    AND {% endif %}current_rows.{{ column.name }} = {{ table.name }}.{{ column.name }}{% br %}
+{% macro getSourceTableView(target_database="") %}
+  {%- set empty = "" %}
+  {%- fetch table.columns[0].sourceTable -%}  
+  {{- empty }}{%- if target_database != table.columns[0].sourceTable.database %}[{{ table.columns[0].sourceTable.database }}].{%- endif %}[{{ table.columns[0].sourceTable.schema }}].[{{ table.columns[0].sourceTable.name }}] AS {{ table.columns[0].sourceTable.name }}
+{% endmacro %}
+
+{# -- This macro returns a string of hash keys or BK used for version -- #}
+{% macro getFirstBK() %}
+  {%- set empty = "" %}
+  {%- from table.columns as column where column.businessKey or column.hubHashKey or column.linkHashKey %}
+    {%- if loop.first %}
+      {{- empty }}{{ column.name }}    
+    {%- endif %}
   {%- endfrom %}
 {% endmacro %}
 
-{% macro addViewSatCurrentVersion(indent ="") %}
-  {{- indent }}INNER JOIN ({% br %}
-  {{- indent }}        SELECT{% br %}
-  {%- from table.columns as column where column.hubHashKey or column.linkHashKey %} 
-    {{- indent }}  
-    {%- if loop.first %}               {% else %}              ,{% endif %}{{ column.name }} AS {{ column.name }}{% br %}
-  {%- endfrom %}
-  {%- from table.columns as column where column.dssStartDate or column.dssVersion %} 
-    {{- indent }}              ,MAX({{ column.name }}) AS {{ column.name }}{% br %}
-  {%- endfrom %}
-  {{- indent }}        FROM   {{ getSourceTableView(target_database = table.database) }}{% br %}
-  {{- indent }}        GROUP BY{% br %}
-  {%- from table.columns as column where column.hubHashKey or column.linkHashKey %} 
-    {{- indent }}
-    {%- if loop.first %}               {% else %}              ,{% endif %}{{ column.name }}{% br %}
-  {%- endfrom %}
-  {{- indent }}) AS current_rows{% br %}
-  {%- from table.columns as column where column.hubHashKey or column.linkHashKey %} 
-    {{- indent }}
-    {%- if loop.first %}    ON  {% else %}    AND {% endif %}current_rows.{{ column.name }} = {{ table.name }}.{{ column.name }}{% br %}
-  {%- endfrom %}
-  {%- from table.columns as column where column.dssStartDate or column.dssVersion %} 
-    {{- indent }}    AND current_rows.{{ column.name }} = {{ table.name }}.{{ column.name }}{% br %}
-  {%- endfrom %}
-{% endmacro %}
-
-{# --==============================================================================                                                                         -- #}
-{# -- Lookup                                                                                                                                                -- #}
-{# --==============================================================================                                                                         -- #}
-
-{% macro addLookupDimension(indent = "   ", firstInClause = true ) %}
-  {%- from table.columns as column where column.lookupKey -%}
-    {%- fetch column.sourceTable -%}
-    {%- set columnDescription = column.description.replace("
-","
-AND ") -%}
-    {{- indent }}LEFT OUTER JOIN [{{ column.sourceTable.database }}].[{{ column.sourceTable.schema }}].[{{ column.sourceTable.name }}] AS {{ column.sourceTable.name }}{% br %}
-    {{- indent }}ON {{ getLines(indent,object = columnDescription) }}{% br %}
-  {%- endfrom -%}
-{% endmacro %}
-
-{# --==============================================================================                                                                         -- #}
-{# -- Others                                                                                                                                                -- #}
-{# --==============================================================================                                                                         -- #}
-
-{% macro addSelectColumnsHashKeys(indent = "       ",firstInClause = true) %}
-  {%- from table.columns as column where column.hubHashKey or column.linkHashKey or column.businessKey %}
-    {{- indent }}
-    {%- if loop.first and firstInClause %} {% else %},{% endif -%}
-      {{ column.name }}{% br %} 
-  {%- endfrom %}
-{% endmacro %}
-
-{% macro addSelectColumnsTimeline(indent = "       ",firstInClause = true) %}
-  {%- from table.columns as column where column.name == "dss_effectivity_datetime" or column.name == "dss_expiry_datetime" or column.dssEndDate %}
-    {{- indent }}
-    {%- if loop.first and firstInClause %} {% else %},{% endif %}
-    {%- if column.dssEndDate -%}
-      LEAD(DATEADD(ns , -100 , {{ dssLoadDate() }}) , 1 , {{ dssDateTimeMaxValue() }}) OVER ( PARTITION BY {{ getHashKeyString() }} ORDER BY {{ dssLoadDate() }} )
-    {%- elseif column.name == "dss_effectivity_datetime" -%}
-      {{ dssEventDate() }}
-    {%- elseif column.name == "dss_expiry_datetime" -%}
-      LEAD(DATEADD(ns , -100 , {{ dssEventDate() }}) , 1 , {{ dssDateTimeMaxValue() }}) OVER ( PARTITION BY {{ getHashKeyString() }} ORDER BY {{ dssEventDate() }}, {{ dssLoadDate() }} )
-    {%- endif %} AS {{ column.name }} {% br %}
-  {%- endfrom %}
-{% endmacro %}
-
-{% macro addIndexBKColumns(indent = "   ", firstInClause = true ) %}
+{% macro checkBKexists() %}
   {%- from table.columns as column where column.businessKey -%}
-    {{- indent }}
-    {%- if loop.first and firstInClause %} {% else %},{% endif %}{{ column.name }} ASC{% br %}    
+    {%- set hasBusinessKey = "1" -%}
   {%- endfrom -%}
+  {%- if hasBusinessKey != "1" -%}
+    MISSING_BUSINESS_KEY --> Set the Key Type in the columnlist{%br%}
+  {%- endif -%}
+{% endmacro %}
+
+# -- Splits an object into lines. They can be clauses and transformations -- #}
+{% macro getLines (indent = "       ", object = "") %}
+  {%- for getLine in (object | trim | lines) -%}
+    {%- if not loop.first %}{{- indent }}{%- endif %}{{ getLine }}{%- if not loop.last %}{%br%}{%- endif %}
+  {%- endfor %}
 {% endmacro %}
