@@ -1,7 +1,7 @@
 {# --==============================================================================                                                                         -- #}
 {# --                                                                                                                                                       -- #}
 {# -- DBMS Name          : SQL Server                                                                                                                       -- #}
-{# -- Template Name      : nu3_sqlserver_utility_elements                                                                                                   -- #}
+{# -- Template Name      : nu3_sqlserver_utility_snippets                                                                                                   -- #}
 {# -- Description        : Macros to return individual parts to be used in elements                                                                         -- #}
 {# --                                                                                                                                                       -- #}
 {# --==============================================================================                                                                         -- #}
