@@ -6,33 +6,48 @@ The current template scheme is the following:
 ```
 
 What kind of template types do exist (so far in our architecture):
+* block (reusable select statements for views or stored procedure)
 * ddl (used for create statements for views and tables)
 * procedure (used for stored procedures)
 * utility (used for shared functionality among all templates)
 
 ### Utility
 
-The utility section consists of 2 master templates:
+The utility section consists of 3 master templates:
+* configuration
 * elements
 * snippets
+
+In the **configuration template** are many default settings I reuse in other templates. Unfortunatley I didn't find a way yet to use these values as variables in if clauses. So search and replace in other templates anything like '== "'. Then it looks like that I needed to hard code it..
 
 In the **elements template** are such things like:
 * column lists
 * where clauses
 * joins
 
-While in the **snippets template** are just small recurring code to return strings and formulas.
+In the **snippets template** are just small recurring code to return strings and formulas.
+
+Other utility templates are:
+* procedure
+* ddl
+
+They have reusable patterns for template types
+
+### DDL
+
+These templates are useable in all objects. Instead of the default table creation it is possible to specify a view DDL instead. In that way it is not needed to create tables and stored procedures.
 
 ### Procedure
 
-The procedure template type starts with the outline of a stored procedure and recurring elements. Actually it is also an 
-utility template but for better organization and because it can only be used for procedure templates it lies here.
+These templates are used for creating stored procedures
 
-## Notes
+### Block
 
-From a default environment I changed some stuff:
-* All date data types are of datetime2(7) 
-* I use sysdatetime() to get insert_date or update_date
-* My major system column for load dates is dss_load_datetime
+A block is in my case a SELECT statement for a specific purpose. Usually inserting data into a target table.
 
-Modify accordingly to get it working.
+By designing a block I can reuse it in a view and a stored procedure at the same time. In that way I can select to create a view or a table with a stored procedure with the same outcome.
+
+Think further and you are able to create virtual data warehouse.
+
+
+
