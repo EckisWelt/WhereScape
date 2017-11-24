@@ -34,7 +34,7 @@
 {%- endfrom -%}
 {%- set hasHashKey = false -%}    
 
-{#- Procedure Header#}
+{#- Procedure Header #}
   {{- addProcedureDocumentation(templateVersion) }}
   {{- addProcedureHeader() }}
   {{- addProcedureCommentBlock(commentMessage = "MAIN") }}
@@ -52,11 +52,11 @@
     EXEC @v_return_status = sp_executesql @v_sql{% br %}{% br %}
 
 {#- Create temporary table only if we have to calculate a hash key #}
-    {%- from table.columns as column where (column.hubHashKey or column.linkHashKey or column.changeHashKey) and column.hashKeySources is defined and table.sourceJoinDetails.where | trim != ""  -%}
+    {%- from table.columns as column where (column.hubHashKey or column.linkHashKey or column.changeHashKey) and column.hashKeySources is defined and table.sourceJoinDetails.where | trim != "" -%}
       {%- set hasHashKey = true -%}      
     {%- endfrom -%}
     {%- if hasHashKey == true -%}
-    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Extract columns") }}
+    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Temporary Table") }}
     SET @v_step = {% counter %}00{% br %}{% br %}
     SET @v_row_count = 0{% br %}{% br %}
     IF OBJECT_ID('tempdb..{{ TempTable }}') IS NOT NULL
@@ -88,7 +88,7 @@
     SET @v_insert_count = @v_insert_count + @v_row_count{% br %}
     {{- addDetailMessage(indent = "    ",message = table.name + " updated. ' + CONVERT(VARCHAR,@v_row_count) + ' records added.") }}
     {% br %}
-        
+
 {#- CleanUp #}
     {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Clean Up") }}
     SET @v_step = {% counter %}00{% br %}{% br %}    
