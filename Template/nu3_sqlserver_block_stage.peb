@@ -23,9 +23,9 @@
     {%- set hasHashKey = true -%}      
   {%- endfrom -%}
     
-{#- Select Result #}
+{#- Select Load #}
 {{- indent }}SELECT {{ distinct() }}{% br %}
-                    {{- addSelectColumnsResult(indent = indent + "      ", sysObjectType = sysObjectType) }}
+                    {{- addSelectColumnsLoad(indent = indent + "      ", sysObjectType = sysObjectType) }}
 {{- indent }}FROM   ({% br %}
 
 {#- Select Lookup #}
@@ -50,15 +50,24 @@
 
 {#- Select Extract #}
               {%- if table.viewInfo is defined -%}
+                {%- if sourceTable is defined %}
+{{- indent }}          SELECT {% br %}
+                              {{- addSelectColumnsExtractMerge(indent = indent + "                ")}}
+{{- indent }}          FROM   [TABLEOWNER].[{{ sourceTable }}] AS {{ sourceTable }}{%br%}                
+                {%- elseif table.viewInfo.whereClause contains "FROM" -%}
 {{- indent }}          SELECT *{% br %}
-                {%- if table.viewInfo.whereClause contains "FROM" -%}
-                       {{- getLines(indent = indent + "          ",object = table.viewInfo.whereClause) }}{% br %}
+                              {{- getLines(indent = indent + "                ",object = table.viewInfo.whereClause) }}{% br %}
                 {%- else -%}
-{{- indent }}          FROM {{getSourceTableMain(target_database = table.database)}}{% br %}
-                       {{- getLines(indent = indent + "          ",object = table.viewInfo.whereClause) }}{% br %}
+{{- indent }}          SELECT *{% br %}
+{{- indent }}          FROM {{getSourceTableView(target_database = table.database)}}{% br %}
+                              {{- getLines(indent = indent + "                ",object = table.viewInfo.whereClause) }}{% br %}
                 {%- endif %}
               {%- else %}
-                {%- if hasHashKey == true and sysObjectType == "TABLE" %}
+                {%- if sourceTable is defined %}
+{{- indent }}          SELECT {% br %}
+                              {{- addSelectColumnsExtractMerge(indent = indent + "                ")}}
+{{- indent }}          FROM   [TABLEOWNER].[{{ sourceTable.key }}] AS {{ sourceTable.key }}{%br%}                
+                {%- elseif hasHashKey == true and sysObjectType == "TABLE" %}
 {{- indent }}          SELECT *{% br %}
 {{- indent }}          FROM   {{ TempTable }} AS {{ table.name }}{% br %}
                 {%- else %}
