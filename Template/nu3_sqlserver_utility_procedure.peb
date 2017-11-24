@@ -3,11 +3,11 @@
 {# -- DBMS Name          : SQL Server                                                                                                                       -- #}
 {# -- Template Name      : nu3_sqlserver_utility                                                                                                            -- #}
 {# -- Description        : Macros to outline a Stored Procedure                                                                                             -- #}
-{# --                      (Originally based on wsl_sqlserver_utility_dv)                                                                                   -- #}
 {# --                                                                                                                                                       -- #}
 {# --==============================================================================                                                                         -- #}
 {# --                                                                                                                                                       -- #}
 {# -- History                                                                                                                                               -- #}
+{# --          | WhereScape Ltd.      | Based on wsl_sqlserver_utility_dv                                                                                   -- #}
 {# -- 20170628 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
 {# -- 20171101 | Eckhard Zemp         | Removing obsolet parameters                                                                                         -- #}
 {# --                                                                                                                                                       -- #}
