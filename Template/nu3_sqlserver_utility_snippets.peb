@@ -7,8 +7,10 @@
 {# --==============================================================================                                                                         -- #}
 {# --                                                                                                                                                       -- #}
 {# -- History                                                                                                                                               -- #}
+{# --          | WhereScape Ltd.      | HashKey Calculation Macros                                                                                          -- #}
 {# -- 20170711 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
 {# -- 20170828 | Eckhard Zemp         | Add BK to getHashKeyString for Multi-Active Satellites                                                              -- #}
+{# -- 20171025 | Eckhard Zemp         | Add getBKCleaned to clean to be hashed values                                                                       -- #}
 {# --                                                                                                                                                       -- #}
 {# --==============================================================================                                                                         -- #}
 
@@ -28,7 +30,7 @@
   {%- elseif BKColumn.dataType == "tinyint" or BKColumn.dataType == "smallint" or BKColumn.dataType == "int" or BKColumn.dataType == "bigint" -%}
     COALESCE({{ BKColumn.name }},-1)
   {%- elseif BKColumn.dataType == "date" or BKColumn.dataType == "datetime2" -%}    
-    COALESCE({{ BKColumn.name }},'0001-01-01')  
+    COALESCE({{ BKColumn.name }},{{ dssDateTimeMinValue() }})  
   {%- else -%}
     ALERT: Transformation in getBKCleaned() missing
   {%- endif -%}
