@@ -19,10 +19,14 @@
 {%- import "nu3_sqlserver_utility_ddl" -%}
 {%- import "nu3_sqlserver_block_stage" -%}
 
+{#- Variables #}
+{%- set templateVersion = "20171102" -%}
+
+{#- Drop Table #}
+  {{- addDropTable(table.target) }}
+
+{#- Create View #}  
 {%- fetch table.target %}
-IF OBJECT_ID('{%- if table.target.schema != "" -%}{{table.target.schema}}{% else %}dbo{%- endif -%}.{{table.name}}', 'U') IS NOT NULL{% br %}
-  DROP TABLE [{%- if table.target.schema != "" -%}{{table.target.schema}}{% else %}dbo{%- endif -%}].[{{table.name}}]{% br %}
-{{ EOS() }}{% br %}
 CREATE OR ALTER VIEW [{%- if table.target.schema != "" -%}{{table.target.schema}}{% else %}dbo{%- endif -%}].[{{table.name}}]{% br %}
 ({% br %}
   {{- addInsertColumns(indent = "   ")}}){% br %}
