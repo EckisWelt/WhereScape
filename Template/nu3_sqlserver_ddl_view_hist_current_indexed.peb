@@ -1,0 +1,62 @@
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- DBMS Name          : SQL Server                                                                                                                       -- #}
+{# -- Template Name      : nu3_sqlserver_ddl_view                                                                                                           -- #}
+{# -- Description        : This template creates a view based on the meta data                                                                              -- #}
+{# -- Author             : Eckhard Zemp                                                                                                                     -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- History                                                                                                                                               -- #}
+{# -- 20170920 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
+{# -- 20171120 | Eckhard Zemp         | Add modules                                                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+
+{#- Load some utility macros #}
+{%- import "nu3_sqlserver_utility_configuration" -%}
+{%- import "nu3_sqlserver_utility_elements" -%}
+{%- import "nu3_sqlserver_utility_snippets" -%}
+{%- import "nu3_sqlserver_utility_ddl" -%}
+
+{#- Variables #}
+{%- set templateVersion = "20171120" -%}
+
+{#- Drop Table #}
+  {{- addDropTable(table.target) }}
+
+{#- Create View #}  
+{%- fetch table.target %}
+CREATE OR ALTER VIEW [{%- if table.target.schema != "" -%}{{ table.target.schema }}{% else %}dbo{%- endif -%}].[{{ table.name }}]{% br %}
+({% br %}
+  {{- addInsertColumns(indent="   ") }}){% br %}
+AS{% br %}
+
+{#- Select Load #}
+  SELECT {{ distinct() }}{% br %}
+         {{- addSelectColumnsLoad(indent = "        ", sysObjectType = "VIEW") }}
+  FROM   ({% br %}  
+  
+{#- Select Extract #}  
+    SELECT {% br %}
+           {{- addSelectColumnsExtract(indent = "           ") }}    
+{%- if table.viewInfo.whereClause contains "FROM" %}
+    {%- if table.viewInfo.whereClause | trim != "" %}    {{- getLines(indent = "    ",object = table.viewInfo.whereClause) }}{% br %}{%- endif %}
+{%- else %}
+    FROM {{getSourceTableView(target_database = table.database)}}{% br %}
+    {%- if table.viewInfo.whereClause | trim != "" %}
+      {{- getLines(indent = "    ",object = table.viewInfo.whereClause) }}{% br %}
+    AND     {{ dssCurrentFlag() }} = 'Y'{% br %}
+    {%- else %}  
+    WHERE   {{ dssCurrentFlag() }} = 'Y'{% br %}
+    {%- endif %}
+{%- endif %}
+  ) AS {{ table.name }}{% br %}
+{% br %}
+{{ EOS() }}{% br %}
+{% br %}
+CREATE UNIQUE CLUSTERED INDEX [{{ table.name }}_idx_A]{% br %}
+ON [{%- if table.target.schema != "" -%}{{ table.target.schema }}{% else %}dbo{%- endif -%}].[{{ table.name }}]{% br %}
+({% br %}
+{{ addIndexBKColumns() }}
+) WITH (SORT_IN_TEMPDB = ON, DATA_COMPRESSION = PAGE) ON INDEXES{% br %}
