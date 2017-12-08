@@ -1,0 +1,138 @@
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- DBMS Name          : SQL Server                                                                                                                       -- #}
+{# -- Template Name      : nu3_sqlserver_procedure_history                                                                                                  -- #}
+{# -- Description        : This template loads data from a stage table into a                                                                               -- #}
+{# --                      history table                                                                                                                    -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- History                                                                                                                                               -- #}
+{# -- 20170703 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
+{# -- 20170712 | Eckhard Zemp         | Cleanup                                                                                                             -- #}
+{# -- 20170718 | Eckhard Zemp         | TABLOCKs                                                                                                            -- #}
+{# -- 20170726 | Eckhard Zemp         | Set initial dss_start_datetime to 0001-01-01                                                                        -- #}
+{# -- 20171120 | Eckhard Zemp         | Replace addSelectColumns                                                                                            -- #}
+{# -- 20171124 | Eckhard Zemp         | Separate into more layers                                                                                           -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+
+{#- Load utility macros #}
+{%- import "nu3_sqlserver_utility_configuration" -%}
+{%- import "nu3_sqlserver_utility_elements" -%}
+{%- import "nu3_sqlserver_utility_snippets" -%}
+{%- import "nu3_sqlserver_utility_procedure" -%}
+
+{#- Variables #}
+{%- set templateVersion = "20171120" -%}
+{%- set hasVersionColumn = false -%}      
+{%- from table.columns as column where column.dssVersion -%}
+  {%- set hasVersionColumn = true -%}     
+{%- endfrom -%} 
+
+{#- Procedure Header#}
+  {{- addProcedureDocumentation(templateVersion) }}
+  {{- addProcedureHeader() }}
+  
+{#- Set Variable for Batch processing #}    
+  {{- addProcedureCommentBlock(commentMessage = "Batch Processing Variables") }}
+  SET @v_step = {% counter %}00{% br %}{% br %}
+  DECLARE @v_batch_start {{ dssDateTimeDataType() }}{% br %}{% br %}
+
+{#- Set Cursor for Batch processing #}    
+  {{- addProcedureCommentBlock(commentMessage = "Cursor for Batch processing") }}
+  SET @v_step = {% counter %}00{% br %}{% br %}
+  DECLARE @last_{{ dssLoadDate() }} {{ dssDateTimeDataType() }} = (SELECT ISNULL(MAX({{ dssLoadDate() }}) , {{ dssDateTimeMinValue() }}) FROM [TABLEOWNER].[{{ table.name }}]){% br %}{% br %}
+  DECLARE cursor_batch CURSOR LOCAL FAST_FORWARD READ_ONLY FOR{% br %}
+    SELECT DISTINCT {{ dssLoadDate() }} batch_start{% br %}
+    {{ table.sourceJoinDetails.join }}{% br %}
+    WHERE {{ dssLoadDate() }} >= @last_{{ dssLoadDate() }}{% br %}
+    ORDER BY {{ dssLoadDate() }}{% br %}{% br %}
+
+{#- Process Data #}    
+  {{- addProcedureCommentBlock(commentMessage = "MAIN") }}
+  SET @v_step = {% counter %}00{% br %}{% br %}
+  SET @v_insert_count = 0{% br %}
+  SET @v_update_count = 0{% br %}  
+  SET @v_change_count = 0{% br %} 
+  SET @v_batch_count = 0{% br %}  
+  SET @v_current_datetime = {{ currentDatetimeFormula() }}{% br %}{% br %}
+  BEGIN TRY{% br %}{% br %}
+    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Source") }}
+    {{- addDetailMessage(indent = "    ",message = "Load data from " + getSourceTableString(settings, length = 65)) }}        
+    {% br %}  
+    OPEN cursor_batch{% br %}
+    FETCH NEXT FROM cursor_batch INTO @v_batch_start{% br %}{% br %}
+    WHILE @@FETCH_STATUS = 0{% br %}
+      BEGIN{% br %}
+        SET @v_batch_count += 1{% br %}
+        {{- addDetailMessage(message = "Processing batch : ' + COALESCE(CONVERT(VARCHAR,@v_batch_start),' ') + '",indent = "        ") }}
+        {% br %}
+{#- Update expiring rows #}    
+        {{- addProcedureCommentBlock(indent = "        ",commentMessage = "Update expiring records") }}
+        SET @v_step = {% counter %}00{% br %}{% br %}
+        UPDATE [TABLEOWNER].[{{ table.name }}] WITH ( TABLOCKX ){% br %}
+        {{- addUpdateColumnsHistory(indent = "        ") }}
+        {%- if table.sourceJoinDetails.join | trim != "" %}        {{ getLines(indent="        ",object = table.sourceJoinDetails.join) }}{% br %}{%- endif %}
+        WHERE  {{ getSourceTableDssLoadDate() }} = @v_batch_start{% br %}
+               {{- addWhereCurrentFlagColumns(indent = "        ", firstInClause = false ) }}
+               {{- addWhereBKColumns(indent = "        ", firstInClause = false ) }}
+               {{- addWhereChangingColumns(indent = "        ", firstInClause = false ) }}
+        ;{% br %}{% br %}
+        SELECT @v_row_count = @@ROWCOUNT{% br %}{% br %}
+        SET @v_change_count = @v_change_count + @v_row_count{% br %}{% br %}
+        {{- addDetailMessage(indent = "        ",message = "Changed : ' + CONVERT(VARCHAR,COALESCE(@v_row_count,0)) + ' rows") }}
+        {% br %}
+{#- Insert new records #}    
+        {{- addProcedureCommentBlock(indent = "        ",commentMessage = "Insert new records") }}
+        SET @v_step = {% counter %}00{% br %}{% br %}
+        INSERT INTO [TABLEOWNER].[{{ table.name }}] WITH ( TABLOCKX ){% br %}
+        ({% br %}
+               {{- addInsertColumns(indent = "              ") }}    
+        ){% br %}
+{#- Select Load #}
+        SELECT {% br %}
+               {{- addSelectColumnsLoad(indent = "              ") }}
+        FROM   ({% br %}      
+{#- Select History #}
+          SELECT {{ table.name }}.*{% br %}
+                 {{- addSelectColumnsHistory(indent = "                ",firstInClause = false) }}
+          FROM   ({% br %}              
+{#- Select Row Condensing #}
+            {#- Future improvement to implement a loading procedure without batch #}
+{#- Select Where Not Exists #}
+            SELECT {{ table.name }}.*{% br %}          
+            FROM   ({% br %}                          
+{#- Select Extract #}
+              SELECT {% br %}
+                     {{- addSelectColumnsExtract(indent = "                    ") }}    
+              {%- if table.sourceJoinDetails.join | trim != "" %}              {{ getLines(indent="              ",object = table.sourceJoinDetails.join) }}{% br %}{%- endif %}
+              WHERE  {{ getSourceTableDssLoadDate() }} = @v_batch_start{% br %}
+            ) AS {{ table.name }}{% br %}      
+            {{- addWhereHistoryNotExists(indent = "            ") }}
+          ) AS {{ table.name }}{% br %}
+          {{- addHistoryCurrentVersion(indent = "          ") }}          
+        ) AS {{ table.name }}{% br %}                  
+        ;{% br %}{% br %}
+        SELECT @v_row_count = @@ROWCOUNT{% br %}{% br %}
+        SET @v_insert_count = @v_insert_count + @v_row_count{% br %}{% br %}
+        {{- addDetailMessage(indent = "        ",message = "Inserted : ' + CONVERT(VARCHAR,COALESCE(@v_row_count,0)) + ' rows") }}
+        {% br %}        
+        IF @v_batch_count % 100 = 0{% br %}
+        BEGIN{% br %}
+          ALTER INDEX ALL ON [TABLEOWNER].[{{ table.name }}] REORGANIZE PARTITION = ALL;{% br %}
+          UPDATE STATISTICS [TABLEOWNER].[{{ table.name }}];{% br %}
+          {{- addDetailMessage(indent = "          ",message = "Indexes Reorganized") }}          
+        END{% br %}
+        FETCH NEXT FROM cursor_batch INTO @v_batch_start{% br %}
+      END{% br %}
+    CLOSE cursor_batch{% br %}
+    DEALLOCATE cursor_batch{% br %}{% br %}
+    
+{#- Finish Up #}
+    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Finish Up") }}
+    SET @v_step = {% counter %}00{% br %}{% br %}
+    {{- addFinishTask() }}
+    {{- addReturnMessage() }}
+  END TRY{% br %}
+  {{- addProcedureException() -}}
