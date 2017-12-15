@@ -1,0 +1,41 @@
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- DBMS Name          : SQL Server                                                                                                                       -- #}
+{# -- Template Name      : nu3_sqlserver_block_select_hist                                                                                                  -- #}
+{# -- Description        : This template creates a SELECT block for history objects                                                                         -- #}
+{# --                      to be used for views and procedures                                                                                              -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- History                                                                                                                                               -- #}
+{# -- 20171213 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+
+{#- Select Load #}
+{{- indent }}SELECT {% br %}
+                    {{- addSelectColumnsLoad(indent = indent + "      ") }}
+{{- indent }}FROM   ({% br %}      
+
+{#- Select History #}
+{{- indent }}  SELECT {{ table.name }}.*{% br %}
+                      {{- addSelectColumnsHistory(indent = indent + "        ",firstInClause = false) }}
+{{- indent }}  FROM   ({% br %}              
+
+{#- Select Row Condensing #}
+                 {#- Future improvement to implement a loading procedure without batch #}
+               
+{#- Select Where Not Exists #}
+{{- indent }}    SELECT {{ table.name }}.*{% br %}          
+{{- indent }}    FROM   ({% br %}                          
+
+{#- Select Extract #}
+{{- indent }}      SELECT {% br %}
+                          {{- addSelectColumnsExtract(indent = indent + "            ") }}    
+                   {%- if table.sourceJoinDetails.join | trim != "" %}{{- indent }}      {{ getLines(indent = indent + "      ",object = table.sourceJoinDetails.join) }}{% br %}{%- endif %}
+{{- indent }}      WHERE  {{ getSourceTableDssLoadDate() }} = @v_batch_start{% br %}
+{{- indent }}    ) AS {{ table.name }}{% br %}      
+                 {{- addWhereHistoryNotExists(indent = indent + "    ") }}
+{{- indent }}  ) AS {{ table.name }}{% br %}
+               {{- addHistoryCurrentVersion(indent = indent + "  ") }}          
+{{- indent }}) AS {{ table.name }}{% br %}
