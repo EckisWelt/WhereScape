@@ -1,0 +1,63 @@
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- DBMS Name          : SQL Server                                                                                                                       -- #}
+{# -- Template Name      : nu3_sqlserver_block_select_sat                                                                                                   -- #}
+{# -- Description        : This template creates a SELECT block for satellite objects                                                                       -- #}
+{# --                      to be used for views and procedures                                                                                              -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- History                                                                                                                                               -- #}
+{# -- 20171213 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+
+{#- Select Load #}
+{{- indent }}SELECT {% br %}
+                    {{- addSelectColumnsLoad(indent = indent + "      ",sysObjectType = sysObjectType ) }}
+{{- indent }}FROM   ({% br %} 
+     
+{#- Select History #}
+{{- indent }}  SELECT {{ table.name }}.*{% br %}
+{{- indent }}        ,{{ dssLoadDate() }} AS {{ dssStartDate() }}{% br %}
+                     {%- if hasVersionColumn == true %}
+{{- indent }}        ,CASE WHEN current_rows.{{ getFirstBK() }} IS NULL{% br %}
+{{- indent }}              THEN 1{% br %}
+{{- indent }}              ELSE current_rows.{{ dssVersion() }} + 1{% br %}
+{{- indent }}         END AS {{ dssVersion() }}{% br %}
+                     {%- endif %}               
+{{- indent }}  FROM   ({% br %}      
+
+{#- Select Version #}
+{{- indent }}    SELECT {{ table.name }}.*{% br %}
+                        {%- if hasVersionColumn == true %}
+{{- indent }}          ,ROW_NUMBER() OVER ( PARTITION BY {{ getHashKeyString() }} ORDER BY {{ dssLoadDate() }} ) AS {{ dssRowNo() }}{% br %}
+                        {%- endif %}
+{{- indent }}    FROM   ({% br %}      
+
+{#- Select Row Condensing #}
+{{- indent }}      SELECT {{ table.name }}.*{% br %}
+                          {{- addSelectColumnsCondense(indent = indent + "            ",firstInClause = false) }}
+{{- indent }}      FROM   ({% br %}
+
+{#- Select Where Not Exists #}
+{{- indent }}        SELECT {{ table.name }}.*{% br %}
+{{- indent }}        FROM   ({% br %}
+
+{#- Select Extract #}
+{{- indent }}          SELECT {% br %}
+                              {{- addSelectColumnsExtract(indent = indent + "                ") }}    
+                       {%- if table.sourceJoinDetails.join | trim != "" %}{{- indent }}          {{ getLines(indent = indent + "          ",object = table.sourceJoinDetails.join) }}{% br %}{%- endif %}
+                       {%- if table.sourceJoinDetails.where | trim != "" %}{{- indent }}          {{ getLines(indent = indent + "          ",object = table.sourceJoinDetails.where) }}{% br %}{%- endif %}
+{{- indent }}        ) AS {{ table.name }}{% br %}
+                     {%- if sysObjectType == "TABLE" %}
+                       {{- addWhereSatNotExists(indent = indent + "        ") }}              
+                     {%- endif %}
+{{- indent }}      ) AS {{ table.name }}{% br %}              
+{{- indent }}    ) AS {{ table.name }}{% br %}
+                 {{- addWhereCondenseSat(indent = indent + "    ") }}
+{{- indent }}  ) AS {{ table.name }}{% br %}      
+               {%- if hasVersionColumn == true %}
+               {{- addSatCurrentVersion(indent = indent + "  ") }}
+               {%- endif %}
+{{- indent }}) AS {{ table.name }}{% br %}                  
