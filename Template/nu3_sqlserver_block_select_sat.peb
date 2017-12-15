@@ -23,7 +23,7 @@
                      {%- if hasVersionColumn == true %}
 {{- indent }}        ,CASE WHEN current_rows.{{ getFirstBK() }} IS NULL{% br %}
 {{- indent }}              THEN 1{% br %}
-{{- indent }}              ELSE current_rows.{{ dssVersion() }} + 1{% br %}
+{{- indent }}              ELSE current_rows.{{ dssVersion() }} + {{ dssRowNo() }}{% br %}
 {{- indent }}         END AS {{ dssVersion() }}{% br %}
                      {%- endif %}               
 {{- indent }}  FROM   ({% br %}      
