@@ -1,28 +1,18 @@
 {# --==============================================================================                                                                         -- #}
 {# --                                                                                                                                                       -- #}
 {# -- DBMS Name          : SQL Server                                                                                                                       -- #}
-{# -- Template Name      : nu3_sqlserver_procedure_stage                                                                                                    -- #}
-{# -- Description        : This template creates a block to be used for views and                                                                           -- #}
-{# --                      procedures                                                                                                                       -- #}
+{# -- Template Name      : nu3_sqlserver_block_select_stage                                                                                                 -- #}
+{# -- Description        : This template creates a SELECT block for stage objects                                                                           -- #}
+{# --                      to be used for views and procedures                                                                                              -- #}
 {# --                                                                                                                                                       -- #}
 {# --==============================================================================                                                                         -- #}
 {# --                                                                                                                                                       -- #}
 {# -- History                                                                                                                                               -- #}
 {# -- 20171120 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
+{# -- 20171212 | Eckhard Zemp         | Finally found a way to reuse the stage block                                                                        -- #}
 {# --                                                                                                                                                       -- #}
 {# --==============================================================================                                                                         -- #}
 
-{% macro addSelectStatement(indent = "" , sysObjectType = "TABLE" , TempTable = table.name) -%}
-{#- Variables #}
-  {%- set BKColumnsExists = false -%}
-  {%- from table.columns as column where column.businessKey -%}
-    {%- set BKColumnsExists = true -%}
-  {%- endfrom -%}
-  {%- set hasHashKey = false -%}
-  {%- from table.columns as column where (column.hubHashKey or column.linkHashKey or column.changeHashKey) and column.hashKeySources is defined and table.sourceJoinDetails.where | trim != ""  -%}
-    {%- set hasHashKey = true -%}      
-  {%- endfrom -%}
-    
 {#- Select Load #}
 {{- indent }}SELECT {{ distinct() }}{% br %}
                     {{- addSelectColumnsLoad(indent = indent + "      ", sysObjectType = sysObjectType) }}
@@ -30,12 +20,12 @@
 
 {#- Select Lookup #}
 {{- indent }}  SELECT {{ table.name }}.*{% br %}
-                      {{- addSelectColumnsLookup(indent = indent + "         ",firstInClause = false) }}
+                      {{- addSelectColumnsLookup(indent = indent + "        ",firstInClause = false) }}
 {{- indent }}  FROM   ({% br %}
 
 {#- Select Unique #}
 {{- indent }}    SELECT *{% br %}
-                        {%- if BKColumnsExists == true %}{{- addSelectColumnsUnique(indent = indent + "          ",firstInClause = false) }}{%- endif %}
+                        {{- addSelectColumnsCondense(indent = indent + "          ",firstInClause = false) }}
 {{- indent }}    FROM   ({% br %}
 
 {#- Select Hash #}
@@ -50,23 +40,25 @@
 
 {#- Select Extract #}
               {%- if table.viewInfo is defined -%}
-                {%- if sourceTable is defined %}
+                {%- if mergeTable != "" %}
 {{- indent }}          SELECT {% br %}
                               {{- addSelectColumnsExtractMerge(indent = indent + "                ")}}
-{{- indent }}          FROM   [TABLEOWNER].[{{ sourceTable }}] AS {{ sourceTable }}{%br%}                
+{{- indent }}          FROM   [TABLEOWNER].[{{ mergeTable }}] AS {{ mergeTable }}{%br%}                
                 {%- elseif table.viewInfo.whereClause contains "FROM" -%}
-{{- indent }}          SELECT *{% br %}
+{{- indent }}          SELECT {% br %}
+                              {{- addSelectColumnsExtract(indent = indent + "                ")}}
                               {{- getLines(indent = indent + "                ",object = table.viewInfo.whereClause) }}{% br %}
                 {%- else -%}
-{{- indent }}          SELECT *{% br %}
-{{- indent }}          FROM {{getSourceTableView(target_database = table.database)}}{% br %}
+{{- indent }}          SELECT {% br %}
+                              {{- addSelectColumnsExtract(indent = indent + "                ")}}
+{{- indent }}          FROM   {{getSourceTableView(target_database = table.database)}}{% br %}
                               {{- getLines(indent = indent + "                ",object = table.viewInfo.whereClause) }}{% br %}
                 {%- endif %}
               {%- else %}
-                {%- if sourceTable is defined %}
+                {%- if mergeTable != "" %}
 {{- indent }}          SELECT {% br %}
                               {{- addSelectColumnsExtractMerge(indent = indent + "                ")}}
-{{- indent }}          FROM   [TABLEOWNER].[{{ sourceTable.key }}] AS {{ sourceTable.key }}{%br%}                
+{{- indent }}          FROM   [TABLEOWNER].[{{ mergeTable }}] AS {{ mergeTable }}{%br%}                
                 {%- elseif hasHashKey == true and sysObjectType == "TABLE" %}
 {{- indent }}          SELECT *{% br %}
 {{- indent }}          FROM   {{ TempTable }} AS {{ table.name }}{% br %}
@@ -82,7 +74,6 @@
 {{- indent }}      ) AS {{ table.name }}{% br %}
 {{- indent }}    ) AS {{ table.name }}{% br %}   
 {{- indent }}  ) AS {{ table.name }}{% br %}
-               {%- if BKColumnsExists == true %}{{- indent }}  WHERE {{ table.name }}.{{ dssRowNo() }} = 1{% br %}{%- endif %}
+               {%- if hasBK == true %}{{- indent }}  WHERE {{ table.name }}.{{ dssRowNo() }} = 1{% br %}{%- endif %}
                {{- addLookupDimension(indent = indent + "  ") }}        
 {{- indent }}) AS {{ table.name }}{% br %}
-{% endmacro %}
