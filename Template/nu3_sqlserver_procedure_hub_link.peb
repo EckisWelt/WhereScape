@@ -1,0 +1,71 @@
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- DBMS Name          : SQL Server                                                                                                                       -- #}
+{# -- Template Name      : nu3_sqlserver_procedure_hub_link                                                                                                 -- #}
+{# -- Description        : This template loads data from a stage table into a hub                                                                           -- #}
+{# --                      or link table                                                                                                                    -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- History                                                                                                                                               -- #}
+{# -- 20170714 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
+{# -- 20170718 | Eckhard Zemp         | Set source_table for custom procedures                                                                              -- #}
+{# -- 20171116 | Eckhard Zemp         | Replaced addSelectColumn                                                                                            -- #}
+{# -- 20171124 | Eckhard Zemp         | Separate WHERE NOT EXISTS layer                                                                                     -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+
+{#- Load utility macros #}
+  {%- import "nu3_sqlserver_utility_configuration" -%}
+  {%- import "nu3_sqlserver_utility_elements" -%}
+  {%- import "nu3_sqlserver_utility_snippets" -%}
+  {%- import "nu3_sqlserver_utility_procedure" -%}
+
+{#- Variables #}
+  {%- set templateVersion = "20171124 " -%}
+  {%- set sysObjectType = "TABLE" -%}
+
+{#- Properties #}
+  {%- if table.sourceJoinDetails.join is defined %}{%- endif %}
+
+{#- Procedure Header#}
+  {{- addProcedureDocumentation(templateVersion) }}
+  {{- addProcedureHeader() }}
+  {{- addProcedureCommentBlock(commentMessage = "MAIN") }}
+  SET @v_step = {% counter %}00{% br %}{% br %}
+  SET @v_insert_count = 0{% br %}
+  SET @v_current_datetime = {{ currentDateTimeFormula() }}{% br %}{% br %}
+  BEGIN TRY{% br %}{% br %}
+    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Source") }}
+    DECLARE @v_source_table sysname{% br %}
+    SET @v_source_table = CASE WHEN @p_task_name = '{{ table.name }}' THEN 'stage_{{ table.name }}' ELSE @p_task_name END{% br %}{% br %}
+    {%- set sourceMessage = "Load data from ' + @v_source_table + '" %}
+    {{- addDetailMessage(indent = "    ",message = sourceMessage) }}    
+    {% br %}
+{#- Insert new records #}
+    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Insert new records") }}
+    SET @v_step = {% counter %}00{% br %}{% br %}
+    BEGIN TRANSACTION{% br %}{% br %}
+      SET @v_sql = N'{% br %}
+      INSERT INTO [TABLEOWNER].[{{ table.name }}] WITH ( TABLOCKX ){% br %}
+      ({% br %}
+             {{- addInsertColumns(indent = "            ") }}    
+      ){% br %}
+      {%- include "nu3_sqlserver_block_select_hub_link" with {"indent":"      "} %}
+      '{% br %}{% br %}
+      SET @v_sql = REPLACE(@v_sql,'@v_current_datetime','CAST(''' + CAST(@v_current_datetime AS NVARCHAR) + ''' AS {{ dssDateTimeDataType() }})')
+      SET @v_sql = REPLACE(@v_sql,'stage_{{ table.name }}',@v_source_table){% br %}{% br %}
+      EXEC (@v_sql){% br %}{% br %}
+      SELECT @v_row_count = @@ROWCOUNT{% br %}{% br %}
+    COMMIT{% br %}{% br %}
+    SET @v_insert_count = @v_insert_count + @v_row_count{% br %}
+    {{- addDetailMessage(indent = "    ",message = table.name + " updated. ' + CONVERT(VARCHAR,@v_row_count) + ' records added.") }}                
+    {% br %}
+    
+{#- Finish Up #}
+    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Finish Up") }}
+    SET @v_step = {% counter %}00{% br %}{% br %}
+    {{- addFinishTask() }}
+    {{- addReturnMessage() }}
+  END TRY{% br %}
+  {{- addProcedureException() -}}
