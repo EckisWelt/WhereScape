@@ -1,0 +1,53 @@
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- DBMS Name          : SQL Server                                                                                                                       -- #}
+{# -- Template Name      : nu3_sqlserver_ddl_view                                                                                                           -- #}
+{# -- Description        : This template creates a timeline view of a satellite                                                                             -- #}
+{# -- Author             : Eckhard Zemp                                                                                                                     -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- History                                                                                                                                               -- #}
+{# -- 20171115 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
+{# -- 20171120 | Eckhard Zemp         | Add modules                                                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+
+{#- Load some utility macros #}
+  {%- import "nu3_sqlserver_utility_configuration" -%}
+  {%- import "nu3_sqlserver_utility_elements" -%}
+  {%- import "nu3_sqlserver_utility_snippets" -%}
+  {%- import "nu3_sqlserver_utility_ddl" -%}
+
+{#- Variables #}
+  {%- set templateVersion = "20171120" -%}
+  {%- set sysObjectType = "VIEW" -%}
+
+{#- Properties #}
+  {%- if table.viewInfo.whereClause is defined %}{%- endif %}  
+
+{#- Drop Table #}
+  {{- addDropTable(table.target) }}
+
+{#- Create View #}  
+{%- fetch table.target %}
+CREATE OR ALTER VIEW [{%- if table.target.schema != "" -%}{{ table.target.schema }}{% else %}dbo{%- endif -%}].[{{ table.name }}]{% br %}
+({% br %}
+  {{- addInsertColumns(indent="   ") }}){% br %}
+AS{% br %}
+{#- Select Load #}
+SELECT {% br %}
+       {{- addSelectColumnsLoad(indent="       ", sysObjectType = "VIEW") }}
+FROM   ({% br %}
+
+{#- Select Calculation #}
+  SELECT {% br %}
+         {{- addSelectColumnsTimeline(indent="         ",firstInClause = true) }}
+  FROM   ({% br %}
+  
+{#- Select Extract #}  
+    SELECT {% br %} 
+           {{- addSelectColumnsExtract(indent="           ") }}
+    FROM {{getSourceTableView(target_database = table.database)}}{% br %}
+  ) as {{ table.name }}{% br %}
+) as {{ table.name }}{% br %}
