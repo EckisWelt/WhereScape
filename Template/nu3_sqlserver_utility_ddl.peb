@@ -19,3 +19,9 @@ IF OBJECT_ID('{%- if tableTarget.schema != "" -%}{{ tableTarget.schema }}{% else
 {{ EOS() }}{% br %}
 {% endmacro %}
 
+{% macro addDropView(tableTarget = tableTarget) %}
+{%- fetch tableTarget %}
+IF OBJECT_ID('{%- if tableTarget.schema != "" -%}{{ tableTarget.schema }}{% else %}dbo{%- endif -%}.{{ table.name }}', 'V') IS NOT NULL{% br %}
+  DROP VIEW [{%- if tableTarget.schema != "" -%}{{ tableTarget.schema }}{% else %}dbo{%- endif -%}].[{{ table.name }}]{% br %}
+{{ EOS() }}{% br %}
+{% endmacro %}
