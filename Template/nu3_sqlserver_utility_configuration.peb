@@ -10,16 +10,9 @@
 {# -- 20171120 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
 {# --                                                                                                                                                       -- #}
 {# --==============================================================================                                                                         -- #}
-{# --                                                                                                                                                       -- #}
-{# -- Notes                                                                                                                                                 -- #}
-{# -- Unfortunately we can't set variables globally to be used in if clauses.                                                                               -- #}
-{# -- Therefore you need to scan the other templates for '== "'                                                                                             -- #}
-{# --                                                                                                                                                       -- #}
-{# --==============================================================================                                                                         -- #}
 
 {# --==============================================================================                                                                         -- #}
 {# -- System Columns                                                                                                                                        -- #}
-{# -- (not all are used, just for a complete view                                                                                                           -- #}
 {# --==============================================================================                                                                         -- #}
 
 {%- macro dssCreateTime() -%}
@@ -82,6 +75,18 @@
   dss_row_no
 {%- endmacro -%}
 
+{%- macro isActive() -%}
+  is_active
+{%- endmacro -%}
+
+{%- macro isFull() -%}
+  is_full
+{%- endmacro -%}
+
+{%- macro SnapshotDate() -%}
+  snapshot_datetime
+{%- endmacro -%}
+
 {# --==============================================================================                                                                         -- #}
 {# -- Data Type                                                                                                                                             -- #}
 {# --==============================================================================                                                                         -- #}
@@ -114,8 +119,56 @@
   DATEADD(NS,-100,{{ getSourceTableDssLoadDate() }})
 {%- endmacro -%}
 
-{%- macro currentDatetimeFormula() -%}
+{%- macro currentDateTimeFormula() -%}
   SYSDATETIME()
+{%- endmacro -%}
+
+{# --==============================================================================                                                                         -- #}
+{# -- Object Prefixes                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+
+{%- macro objectPrefixDataStore() -%}
+  hist_
+{%- endmacro -%}
+
+{%- macro objectPrefixDimension() -%}
+  dim_
+{%- endmacro -%}
+
+{%- macro objectPrefixFact() -%}
+  fact_
+{%- endmacro -%}
+
+{%- macro objectPrefixHub() -%}
+  hub_
+{%- endmacro -%}
+
+{%- macro objectPrefixLink() -%}
+  link_
+{%- endmacro -%}
+
+{%- macro objectPrefixSatellite() -%}
+  sat_
+{%- endmacro -%}
+
+{%- macro objectPrefixStage() -%}
+  stage_
+{%- endmacro -%}
+
+{# --==============================================================================                                                                         -- #}
+{# -- FileGroup                                                                                                                                             -- #}
+{# --==============================================================================                                                                         -- #}
+
+{% macro getTableFileGroup(table = table) %}
+  {%- if table.objectType == Types.ObjectType.Stage -%}
+    STAGE
+  {%- else -%}
+    DATA
+  {%- endif -%} 
+{% endmacro %}
+
+{%- macro getIndexFileGroup() -%}
+  INDEXES
 {%- endmacro -%}
 
 {# --==============================================================================                                                                         -- #}
