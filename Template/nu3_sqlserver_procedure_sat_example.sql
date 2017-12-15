@@ -51,7 +51,7 @@ AS
 
       INSERT INTO [TABLEOWNER].[sat_demo] WITH ( TABLOCK )
       (
-             hub_product
+             hub_product_key
             ,displayable_quantity
             ,dss_event_datetime
             ,dss_load_datetime
@@ -62,7 +62,7 @@ AS
             ,dss_create_datetime
       )
       SELECT 
-             sat_demo.hub_product AS hub_product 
+             sat_demo.hub_product_key AS hub_product_key 
             ,sat_demo.displayable_quantity AS displayable_quantity 
             ,sat_demo.dss_event_datetime AS dss_event_datetime 
             ,sat_demo.dss_load_datetime AS dss_load_datetime 
@@ -74,26 +74,26 @@ AS
       FROM   (
         SELECT sat_demo.*
               ,dss_load_datetime AS dss_start_datetime
-              ,CASE WHEN current_rows.hub_product IS NULL
+              ,CASE WHEN current_rows.hub_product_key IS NULL
                     THEN 1
                     ELSE current_rows.dss_version + dss_row_no
                END AS dss_version
         FROM   (
           SELECT sat_demo.*
-                ,ROW_NUMBER() OVER ( PARTITION BY hub_product ORDER BY dss_load_datetime ) AS dss_row_no
+                ,ROW_NUMBER() OVER ( PARTITION BY hub_product_key ORDER BY dss_load_datetime ) AS dss_row_no
           FROM   (
             SELECT sat_demo.*
-                  ,CASE WHEN LAG( dss_change_hash , 1 , CONVERT(BINARY(16),'') ) OVER ( PARTITION BY hub_product ORDER BY dss_load_datetime ) = dss_change_hash THEN 0
+                  ,CASE WHEN LAG( dss_change_hash , 1 , CONVERT(BINARY(16),'') ) OVER ( PARTITION BY hub_product_key ORDER BY dss_load_datetime ) = dss_change_hash THEN 0
                         ELSE 1
                    END AS is_hash_change
-                  ,CASE WHEN LAG( dss_load_datetime , 1 , '0001-01-01' ) OVER ( PARTITION BY hub_product ORDER BY dss_load_datetime ) = dss_load_datetime THEN 0
+                  ,CASE WHEN LAG( dss_load_datetime , 1 , '0001-01-01' ) OVER ( PARTITION BY hub_product_key ORDER BY dss_load_datetime ) = dss_load_datetime THEN 0
                         ELSE 1
                    END AS is_load_datetime_change
             FROM   (
               SELECT sat_demo.*
               FROM   (
                 SELECT 
-                       stage_sat_demo.hub_product AS hub_product 
+                       stage_sat_demo.hub_product_key AS hub_product_key 
                       ,stage_sat_demo.displayable_quantity AS displayable_quantity 
                       ,stage_sat_demo.dss_event_datetime AS dss_event_datetime 
                       ,stage_sat_demo.dss_load_datetime AS dss_load_datetime 
@@ -104,7 +104,7 @@ AS
               WHERE NOT EXISTS (
                       SELECT 1
                       FROM   [TABLEOWNER].[sat_demo] sat_demo__not_exist
-                      WHERE  sat_demo__not_exist.hub_product = sat_demo.hub_product
+                      WHERE  sat_demo__not_exist.hub_product_key = sat_demo.hub_product_key
                              AND sat_demo__not_exist.dss_load_datetime < sat_demo.dss_load_datetime
               )
             ) AS sat_demo
@@ -114,14 +114,14 @@ AS
         ) AS sat_demo
         LEFT OUTER JOIN (
                 SELECT
-                       sat_demo__current.hub_product AS hub_product
+                       sat_demo__current.hub_product_key AS hub_product_key
                       ,MAX(sat_demo__current.dss_start_datetime) AS dss_start_datetime
                       ,MAX(sat_demo__current.dss_version) AS dss_version
                 FROM   [TABLEOWNER].[sat_demo] sat_demo__current
                 GROUP BY
-                       sat_demo__current.hub_product
+                       sat_demo__current.hub_product_key
         ) AS current_rows
-            ON  current_rows.hub_product = sat_demo.hub_product
+            ON  current_rows.hub_product_key = sat_demo.hub_product_key
       ) AS sat_demo
       ;
 
