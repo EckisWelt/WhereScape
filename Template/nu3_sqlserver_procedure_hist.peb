@@ -18,17 +18,21 @@
 {# --==============================================================================                                                                         -- #}
 
 {#- Load utility macros #}
-{%- import "nu3_sqlserver_utility_configuration" -%}
-{%- import "nu3_sqlserver_utility_elements" -%}
-{%- import "nu3_sqlserver_utility_snippets" -%}
-{%- import "nu3_sqlserver_utility_procedure" -%}
+  {%- import "nu3_sqlserver_utility_configuration" -%}
+  {%- import "nu3_sqlserver_utility_elements" -%}
+  {%- import "nu3_sqlserver_utility_snippets" -%}
+  {%- import "nu3_sqlserver_utility_procedure" -%}
 
 {#- Variables #}
-{%- set templateVersion = "20171120" -%}
-{%- set hasVersionColumn = false -%}      
-{%- from table.columns as column where column.dssVersion -%}
-  {%- set hasVersionColumn = true -%}     
-{%- endfrom -%} 
+  {%- set templateVersion = "20171120" -%}
+  {%- set sysObjectType = "TABLE" -%}
+  {%- set hasVersionColumn = false -%}      
+  {%- from table.columns as column where column.dssVersion -%}
+    {%- set hasVersionColumn = true -%}     
+  {%- endfrom -%} 
+
+{#- Properties #}
+  {%- if table.sourceJoinDetails.join is defined %}{%- endif %}
 
 {#- Procedure Header#}
   {{- addProcedureDocumentation(templateVersion) }}
@@ -56,7 +60,7 @@
   SET @v_update_count = 0{% br %}  
   SET @v_change_count = 0{% br %} 
   SET @v_batch_count = 0{% br %}  
-  SET @v_current_datetime = {{ currentDatetimeFormula() }}{% br %}{% br %}
+  SET @v_current_datetime = {{ currentDateTimeFormula() }}{% br %}{% br %}
   BEGIN TRY{% br %}{% br %}
     {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Source") }}
     {{- addDetailMessage(indent = "    ",message = "Load data from " + getSourceTableString(settings, length = 65)) }}        
@@ -68,11 +72,12 @@
         SET @v_batch_count += 1{% br %}
         {{- addDetailMessage(message = "Processing batch : ' + COALESCE(CONVERT(VARCHAR,@v_batch_start),' ') + '",indent = "        ") }}
         {% br %}
-{#- Update expiring rows #}    
+        
+{#- Update expiring records #}    
         {{- addProcedureCommentBlock(indent = "        ",commentMessage = "Update expiring records") }}
         SET @v_step = {% counter %}00{% br %}{% br %}
         UPDATE [TABLEOWNER].[{{ table.name }}] WITH ( TABLOCKX ){% br %}
-        {{- addUpdateColumnsHistory(indent = "        ") }}
+        {{- addUpdateColumnsOutdate(indent = "        ") }}
         {%- if table.sourceJoinDetails.join | trim != "" %}        {{ getLines(indent="        ",object = table.sourceJoinDetails.join) }}{% br %}{%- endif %}
         WHERE  {{ getSourceTableDssLoadDate() }} = @v_batch_start{% br %}
                {{- addWhereCurrentFlagColumns(indent = "        ", firstInClause = false ) }}
@@ -83,6 +88,7 @@
         SET @v_change_count = @v_change_count + @v_row_count{% br %}{% br %}
         {{- addDetailMessage(indent = "        ",message = "Changed : ' + CONVERT(VARCHAR,COALESCE(@v_row_count,0)) + ' rows") }}
         {% br %}
+        
 {#- Insert new records #}    
         {{- addProcedureCommentBlock(indent = "        ",commentMessage = "Insert new records") }}
         SET @v_step = {% counter %}00{% br %}{% br %}
@@ -90,29 +96,7 @@
         ({% br %}
                {{- addInsertColumns(indent = "              ") }}    
         ){% br %}
-{#- Select Load #}
-        SELECT {% br %}
-               {{- addSelectColumnsLoad(indent = "              ") }}
-        FROM   ({% br %}      
-{#- Select History #}
-          SELECT {{ table.name }}.*{% br %}
-                 {{- addSelectColumnsHistory(indent = "                ",firstInClause = false) }}
-          FROM   ({% br %}              
-{#- Select Row Condensing #}
-            {#- Future improvement to implement a loading procedure without batch #}
-{#- Select Where Not Exists #}
-            SELECT {{ table.name }}.*{% br %}          
-            FROM   ({% br %}                          
-{#- Select Extract #}
-              SELECT {% br %}
-                     {{- addSelectColumnsExtract(indent = "                    ") }}    
-              {%- if table.sourceJoinDetails.join | trim != "" %}              {{ getLines(indent="              ",object = table.sourceJoinDetails.join) }}{% br %}{%- endif %}
-              WHERE  {{ getSourceTableDssLoadDate() }} = @v_batch_start{% br %}
-            ) AS {{ table.name }}{% br %}      
-            {{- addWhereHistoryNotExists(indent = "            ") }}
-          ) AS {{ table.name }}{% br %}
-          {{- addHistoryCurrentVersion(indent = "          ") }}          
-        ) AS {{ table.name }}{% br %}                  
+        {%- include "nu3_sqlserver_block_select_hist" with {"indent":"        "} %}
         ;{% br %}{% br %}
         SELECT @v_row_count = @@ROWCOUNT{% br %}{% br %}
         SET @v_insert_count = @v_insert_count + @v_row_count{% br %}{% br %}
