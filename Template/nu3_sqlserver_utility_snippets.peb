@@ -140,8 +140,9 @@
 {% endmacro %}
 
 {% macro getSourceTableDssLoadDate() %}
+  {%- set dssLoadDate = dssLoadDate() | trim %}
   {%- set empty = "" %}
-  {%- from table.columns as column where column.name == "dss_load_datetime" %}
+  {%- from table.columns as column where column.name == dssLoadDate %}
     {{- empty }}{{ column.source }}
   {%- endfrom %}
 {% endmacro %}
@@ -163,17 +164,28 @@
 {% endmacro %}
 
 {% macro checkBKexists() %}
+  {%- set hasBusinessKey = false -%}
   {%- from table.columns as column where column.businessKey -%}
-    {%- set hasBusinessKey = "1" -%}
+    {%- set hasBusinessKey = true -%}
   {%- endfrom -%}
-  {%- if hasBusinessKey != "1" -%}
+  {%- if hasBusinessKey == false -%}
     MISSING_BUSINESS_KEY --> Set the Key Type in the columnlist{%br%}
   {%- endif -%}
 {% endmacro %}
 
 # -- Splits an object into lines. They can be clauses and transformations -- #}
-{% macro getLines (indent = "       ", object = "") %}
+{% macro getLines(indent = "       ", object = "") %}
   {%- for getLine in (object | trim | lines) -%}
     {%- if not loop.first %}{{- indent }}{%- endif %}{{ getLine }}{%- if not loop.last %}{%br%}{%- endif %}
   {%- endfor %}
+{% endmacro %}
+
+{% macro getNullConstraint(column = column) %}
+  {%- if column.nullAllowed == false -%}
+    NOT NULL
+  {%- elseif column.nullAllowed == true -%}
+    NULL
+  {%- else -%}
+    Missing NULL information
+  {%- endif -%}
 {% endmacro %}
