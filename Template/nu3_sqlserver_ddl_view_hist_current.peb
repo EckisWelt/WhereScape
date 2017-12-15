@@ -14,14 +14,18 @@
 {# --==============================================================================                                                                         -- #}
 
 {#- Load some utility macros #}
-{%- import "nu3_sqlserver_utility_configuration" -%}
-{%- import "nu3_sqlserver_utility_elements" -%}
-{%- import "nu3_sqlserver_utility_snippets" -%}
-{%- import "nu3_sqlserver_utility_ddl" -%}
+  {%- import "nu3_sqlserver_utility_configuration" -%}
+  {%- import "nu3_sqlserver_utility_elements" -%}
+  {%- import "nu3_sqlserver_utility_snippets" -%}
+  {%- import "nu3_sqlserver_utility_ddl" -%}
 
 {#- Variables #}
-{%- set templateVersion = "20171120" -%}
+  {%- set templateVersion = "20171120" -%}
+  {%- set sysObjectType = "VIEW" -%}
 
+{#- Properties #}
+  {%- if table.viewInfo.whereClause is defined %}{%- endif %}  
+  
 {#- Drop Table #}
   {{- addDropTable(table.target) }}
 
