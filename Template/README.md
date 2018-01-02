@@ -18,7 +18,7 @@ The utility section consists of 3 master templates:
 * elements
 * snippets
 
-In the **configuration template** are many default settings I reuse in other templates. Unfortunatley I didn't find a way yet to use these values as variables in if clauses. So search and replace in other templates anything like '== "'. Then it looks like that I needed to hard code it..
+In the **configuration template** are many default settings I reuse in other templates.
 
 In the **elements template** are such things like:
 * column lists
