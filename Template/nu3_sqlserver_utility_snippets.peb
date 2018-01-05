@@ -124,7 +124,7 @@
   {%- set string = "" -%}
   {%- fetch settings.sourceTablesByName %}  
   {%- from settings.sourceTablesByName as src %}
-    {%- if not loop.first%}{%- set string = string + " , " %}{% endif %}{%- set string = string + src.key -%}
+    {%- if not loop.first%}{%- set string = string + "," %}{% endif %}{%- set string = string + src.key -%}
   {%- endfrom -%}
   {{- string | abbreviate(length) -}}
 {% endmacro %}
