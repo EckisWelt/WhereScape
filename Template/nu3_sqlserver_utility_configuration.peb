@@ -8,6 +8,7 @@
 {# --                                                                                                                                                       -- #}
 {# -- History                                                                                                                                               -- #}
 {# -- 20171120 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
+{# -- 20180104 | Eckhard Zemp         | Add Feature selection                                                                                               -- #}
 {# --                                                                                                                                                       -- #}
 {# --==============================================================================                                                                         -- #}
 
@@ -179,3 +180,40 @@
   <EOS>
 {%- endmacro -%}
 
+{# --==============================================================================                                                                         -- #}
+{# -- Settings                                                                                                                                              -- #}
+{# --==============================================================================                                                                         -- #}
+
+{# -- Data into Hubs are usually getting inserted only. But there is an option to allow updating the dssLoadDate if they are ealier than the saved ones -- #}
+{%- macro settingHubUpdate() -%}
+  true
+{%- endmacro -%}
+
+{# -- Condensing data or removing duplicates is a dangerous feature. Consider saving time, saving space or avoiding data issues -- #}
+{%- macro settingStageCondense() -%}
+  true
+{%- endmacro -%}
+
+{%- macro settingDataStoreCondense() -%}
+  true
+{%- endmacro -%}
+
+{%- macro settingHubCondense() -%}
+  true
+{%- endmacro -%}
+
+{%- macro settingLinkCondense() -%}
+  true
+{%- endmacro -%}
+
+{%- macro settingSatelliteCondense() -%}
+  true
+{%- endmacro -%}
+
+{%- macro settingDimensionCondense() -%}
+  false
+{%- endmacro -%}
+
+{%- macro settingFactCondense() -%}
+  false
+{%- endmacro -%}
