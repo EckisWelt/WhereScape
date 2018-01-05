@@ -1,0 +1,33 @@
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- DBMS Name          : SQL Server                                                                                                                       -- #}
+{# -- Template Name      : nu3_sqlserver_block_select_dim                                                                                                   -- #}
+{# -- Description        : This template creates a SELECT block for dimension objects                                                                       -- #}
+{# --                      to be used for views and procedures                                                                                              -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- History                                                                                                                                               -- #}
+{# -- 20171213 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+
+{#- Select Load #}
+{{- indent }}SELECT {% br %}
+                    {{- addSelectColumnsLoad(indent = indent + "      ",sysObjectType = sysObjectType) }}
+{{- indent }}FROM   ({% br %}
+
+{#- Select Where Not Exists #}
+{{- indent }}  SELECT {{ table.name }}.*{% br %}
+{{- indent }}  FROM   ({% br %}
+
+{#- Select Extract #}
+{{- indent }}    SELECT {% br %}
+                        {{- addSelectColumnsExtract(indent = indent + "          ") }}    
+                 {%- if table.sourceJoinDetails.join | trim != "" %}{{- indent }}    {{ getLines(indent = indent + "    ",object = table.sourceJoinDetails.join) }}{% br %}{%- endif %}
+                 {%- if table.sourceJoinDetails.where | trim != "" %}{{- indent }}    {{ getLines(indent = indent + "    ",object = table.sourceJoinDetails.where) }}{% br %}{%- endif %}      
+{{- indent }}  ) AS {{ table.name }}{% br %}
+               {%- if sysObjectType == "TABLE" %}      
+                 {{- addWhereBKNotExists(indent = indent + "  ", firstInClause = true) }}        
+               {%- endif %}
+{{- indent }}) AS {{ table.name }}{% br %}      
