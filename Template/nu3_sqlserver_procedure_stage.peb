@@ -16,6 +16,8 @@
 {# -- 20171102 | Eckhard Zemp         | Adding Dimension Lookup                                                                                             -- #}
 {# -- 20171108 | Eckhard Zemp         | Beautify multiple lines with getLines                                                                               -- #}
 {# -- 20171212 | Eckhard Zemp         | Finally found a way to reuse the stage block                                                                        -- #}
+{# -- 20171219 | Eckhard Zemp         | Added delta loading option                                                                                          -- #}
+{# -- 20180102 | Eckhard Zemp         | Merge stage fact features into here                                                                                 -- #}
 {# --                                                                                                                                                       -- #}
 {# --==============================================================================                                                                         -- #}
 
@@ -26,17 +28,26 @@
   {%- import "nu3_sqlserver_utility_procedure" -%}
 
 {#- Variables #}
-  {%- set templateVersion = "20171212" -%}
+  {%- set templateVersion = "20180102" -%}
   {%- set sysObjectType = "TABLE" -%}
   {%- set TempTable = "#" + table.name -%}
   {%- set hasBK = false -%}
   {%- from table.columns as column where column.businessKey -%}
     {%- set hasBK = true -%}
   {%- endfrom -%}
+  {%- set target_object_name = "" -%}        
+  {%- if table.extendedPropertyValuesByName.target_object_name is defined -%}
+    {%- set list = table.extendedPropertyValuesByName.target_object_name -%}
+    {%- for item in (list | lines) -%}
+      {%- if item | trim != "" -%}{%- set target_object_name = item | trim -%}{%- endif %}
+    {%- endfor %} 
+  {%- endif -%}  
   {%- set hasHashKey = false -%}    
-  {%- from table.columns as column where (column.hubHashKey or column.linkHashKey or column.changeHashKey) and column.hashKeySources is defined and table.sourceJoinDetails.where | trim != "" -%}
+  {%- from table.columns as column where (column.hubHashKey or column.linkHashKey or column.changeHashKey) and column.hashKeySources is defined and (table.sourceJoinDetails.where | trim != "" or target_object_name != "") -%}
     {%- set hasHashKey = true -%}      
   {%- endfrom -%}
+  {%- set dssLoadDate = dssLoadDate() | trim -%}
+  {%- set empty = "" -%}
   
 {#- Properties #}
   {%- if table.sourceJoinDetails.distinct is defined %}{%- endif %}  
@@ -52,9 +63,12 @@
   SET @v_insert_count = 0{% br %}
   SET @v_current_datetime = {{ currentDateTimeFormula() }}{% br %}{% br %}
   BEGIN TRY{% br %}{% br %}
+       
+{#- Source #}
     {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Source") }}
     {{- addDetailMessage(indent = "    ",message = "Load data from " + getSourceTableString(settings, length = 65)) }}        
-    {% br %}    
+    {% br %} 
+      
 {#- Delete old records #}
     {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Delete existing records") }}
     SET @v_step = {% counter %}00{% br %}{% br %}
@@ -68,12 +82,19 @@
     SET @v_row_count = 0{% br %}{% br %}
     IF OBJECT_ID('tempdb..{{ TempTable }}') IS NOT NULL
       DROP TABLE {{ TempTable }}{% br %}{% br %}
-    SELECT {% br %}
-           {{- addSelectColumnsExtract(indent = "          ") }}
+    SELECT *{% br %}
     INTO   {{ TempTable }}{% br %}
-    {%- if table.sourceJoinDetails.join | trim != "" %}    {{ getLines(indent="    ",object = table.sourceJoinDetails.join) }}{% br %}{%- endif %}
-    {%- if table.sourceJoinDetails.where | trim != "" %}    {{ getLines(indent="    ",object = table.sourceJoinDetails.where) }}{% br %}{%- endif %}
-    {%- if table.sourceJoinDetails.groupBy | trim != "" %}    {{ getLines(indent="    ",object = table.sourceJoinDetails.groupBy) }}{% br %}{%- endif %}    
+    FROM ({% br %}
+      SELECT *{% br %}
+      FROM ({% br %}
+        SELECT {% br %}
+               {{- addSelectColumnsExtract(indent = "              ") }}
+        {%- if table.sourceJoinDetails.join | trim != "" %}        {{ getLines(indent="        ",object = table.sourceJoinDetails.join) }}{% br %}{%- endif %}
+        {%- if table.sourceJoinDetails.where | trim != "" %}        {{ getLines(indent="        ",object = table.sourceJoinDetails.where) }}{% br %}{%- endif %}
+        {%- if table.sourceJoinDetails.groupBy | trim != "" %}        {{ getLines(indent="        ",object = table.sourceJoinDetails.groupBy) }}{% br %}{%- endif %}    
+      ) AS {{ table.name }}{% br %}
+      {{- addWhereDssLoadDateMax(indent = "      ")}}
+    ) AS {{ table.name }}{% br %}
     ;{% br %}{% br %}
     SELECT @v_row_count = @@ROWCOUNT{% br %}
     {{- addDetailMessage(indent = "    ",message = TempTable + " updated. ' + CONVERT(VARCHAR,@v_row_count) + ' records added.") }}
@@ -96,6 +117,123 @@
     {{- addDetailMessage(indent = "    ",message = table.name + " updated. ' + CONVERT(VARCHAR,@v_row_count) + ' records added.") }}
     {% br %}
 
+{#- Insert Dimension Keys #}
+    {%- from table.relations as rel %}
+      {%- if loop.first %}    
+        {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Insert & Update dimension keys for failed lookup") }}        
+      {%- endif %}
+      {%- for fk in rel.fks %}
+        {%- if loop.first %}
+          {%- set insert_missing_bk = true -%}        
+          {%- set newLine = "
+" %}
+          {%- fetch fk.toTable %}
+          {%- if fk.toTable.extendedPropertyValuesByName.insert_missing_bk is defined -%}
+            {%- set list = fk.toTable.extendedPropertyValuesByName.insert_missing_bk -%}
+            {%- for item in (list | lines ) -%}
+              {%- if item | trim | lower == "false" -%}{%- set insert_missing_bk = false -%}{%- endif %}
+            {%- endfor %} 
+          {%- endif %}
+          {%- set zero_key_id = 0 -%}        
+          {%- if fk.toTable.extendedPropertyValuesByName.zero_key_id is defined -%}
+            {%- set list = fk.toTable.extendedPropertyValuesByName.zero_key_id -%}
+            {%- for item in (list | lines) -%}
+              {%- if item | trim != "" -%}{%- set zero_key_id = item | trim -%}{%- endif %}
+            {%- endfor %} 
+          {%- endif -%}          
+          {%- if insert_missing_bk == true %}
+            {%- for fk in rel.fks %}
+              {%- if loop.first %}
+                {%- fetch fk.toTable %}
+    -- {{ fk.toTable.name }}{% br %}
+    BEGIN TRANSACTION{% br %}{% br %}          
+      INSERT INTO [TABLEOWNER].[{{ fk.toTable.name }}] WITH ( TABLOCKX ){% br %}
+              {%- endif %}
+            {%- endfor %}       
+      ({% br %}
+            {%- for fk in rel.fks %}   
+            {% if loop.first %} {% else %},{% endif %}
+              {%- fetch fk.toColumn %}
+              {{- fk.toColumn.name }}{% br %}
+            {%- endfor %}
+            {%- for fk in rel.fks %}     
+              {%- fetch fk.toTable %}
+              {%- if loop.first %}
+                {%- from fk.toTable.columns as column where column.createTime or column.updateTime or column.name == dssLoadDate %}    
+            ,{{ column.name }}{% br %}
+                {%- endfrom %}
+              {%- endif %}          
+            {%- endfor %}
+      ){% br %}
+      SELECT DISTINCT{% br %}
+            {%- for fk in rel.fks %}   
+            {% if loop.first %} {% else %},{% endif %}
+              {%- fetch fk.fromColumn %}
+              {{- fk.fromColumn.name }}{% br %}
+            {%- endfor %} 
+            {%- for fk in rel.fks %}     
+              {%- fetch fk.toTable %}
+              {%- if loop.first %}       
+                {%- from fk.toTable.columns as column where column.createTime or column.updateTime or column.name == dssLoadDate %}    
+            ,{%- if column.updateTime or column.createTime -%} 
+                @v_current_datetime
+            {%- elseif column.name == dssLoadDate -%}
+                '0001-01-01'
+            {%- else -%}
+                {{ column.name }}
+            {%- endif %}{% br %}
+                {%- endfrom %}          
+              {%- endif %}
+            {%- endfor %}
+      FROM   [TABLEOWNER].[{{ table.name }}]{% br %}
+            {%- for fk in rel.fks %}     
+              {%- fetch fk.toTable %}
+              {%- if loop.first %}       
+                {%- from fk.toTable.columns as column where column.artificial %}    
+      WHERE  {{ column.name }} = {{ zero_key_id }}{% br %}
+      ;{% br %}{% br %}
+      SELECT @v_row_count = @@ROWCOUNT{% br %}{% br %}
+    COMMIT{% br %}{% br %}
+    SET @v_insert_count = @v_insert_count + @v_row_count{% br %}
+    {{- addDetailMessage(indent = "    ",message = fk.toTable.name + " updated. ' + CONVERT(VARCHAR,@v_row_count) + ' records added.") }}
+                {%- endfrom %}          
+              {%- endif %}
+            {%- endfor %}      
+    {% br %}
+    BEGIN TRANSACTION{% br %}{% br %}      
+      UPDATE [TABLEOWNER].[{{ table.name }}] WITH ( TABLOCKX ){% br %}
+          {%- for fk in rel.fks %}     
+            {%- fetch fk.toTable %}
+              {%- if loop.first %}       
+                {%- from fk.toTable.columns as column where column.artificial %}    
+      SET    {{ column.name }} = {{ fk.toTable.name }}.{{ column.name }}{% br %}
+                  {%- from table.columns as column2 where column2.updateTime %}        
+            ,{{ column2.name }} = @v_current_datetime{% br %}
+                  {%- endfrom %}
+      FROM   [TABLEOWNER].[{{ fk.toTable.name }}]{% br %}
+      WHERE  {{ table.name }}.{{ column.name }} = 0{% br %}
+                  {%- for fkBK in rel.fks %}   
+                    {%- fetch fkBK.fromColumn %}
+                    {%- fetch fkBK.toColumn %}              
+             AND {{ fk.toTable.name }}.{{ fkBK.toColumn.name }} = {{ table.name }}.{{ fkBK.fromColumn.name }}{% br %}
+                  {%- endfor %}       
+              {%- endfrom %}          
+            {%- endif %}
+          {%- endfor %}      
+      ;{% br %}{% br %}
+      SELECT @v_row_count = @@ROWCOUNT{% br %}{% br %}
+    COMMIT{% br %}{% br %}
+    SET @v_update_count = @v_update_count + @v_row_count{% br %}
+    {{- addDetailMessage(indent = "    ",message = table.name + " updated. ' + CONVERT(VARCHAR,@v_row_count) + ' records updated.") }}
+    {% br %}
+          {%- else %}
+    -- {{ fk.toTable.name }}{% br %}
+    -- No insert of missing business keys for {{ fk.toTable.name }} allowed{% br %}{% br %}          
+          {%- endif %}
+        {%- endif %}
+      {%- endfor %}
+    {%- endfrom %}     
+    
 {#- CleanUp #}
     {%- if hasHashKey == true -%}
     {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Clean Up") }}
