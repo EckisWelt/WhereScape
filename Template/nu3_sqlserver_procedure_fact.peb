@@ -1,0 +1,125 @@
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- DBMS Name          : SQL Server                                                                                                                       -- #}
+{# -- Template Name      : nu3_sqlserver_procedure_fact                                                                                                     -- #}
+{# -- Description        : This template loads data from a stage table into a fact                                                                          -- #}
+{# --                      table                                                                                                                            -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- History                                                                                                                                               -- #}
+{# -- 20170901 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
+{# -- 20171120 | Eckhard Zemp         | Replace addSelectColumns                                                                                            -- #}
+{# -- 20171124 | Eckhard Zemp         | Separate WHERE NOT EXISTS layer                                                                                     -- #}
+{# -- 20171213 | Eckhard Zemp         | Option to delete or update                                                                                          -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+
+{#- Load utility macros #}
+  {%- import "nu3_sqlserver_utility_configuration" -%}
+  {%- import "nu3_sqlserver_utility_elements" -%}
+  {%- import "nu3_sqlserver_utility_snippets" -%}
+  {%- import "nu3_sqlserver_utility_procedure" -%}
+
+{#- Variables #}
+  {%- set templateVersion = "20171124" -%}
+  {%- set sysObjectType = "TABLE" -%}
+  {%- set hasBK = false %}
+  {%- from table.columns as column where column.businessKey %}
+    {%- set hasBK = true %}
+  {%- endfrom -%}
+  {%- set hasChangeHash = false %}
+  {%- from table.columns as column where column.changeHashKey -%}
+    {%- set hasChangeHash = true %}
+  {%- endfrom %}  
+  {%- set hasCCI = false %}
+  {%- from table.indexes as ind %}
+    {%- if ind.indexType == Types.IndexType.ClusteredColumnstore %}
+      {%- set hasCCI = true %}
+    {%- endif %}
+  {%- endfrom %}
+
+{#- Properties #}
+  {%- if table.sourceJoinDetails.join is defined %}{%- endif %}
+
+{#- Procedure Header#}
+  {{- addProcedureDocumentation(templateVersion) }}
+  {{- addProcedureHeader() }}
+  {{- addProcedureCommentBlock(commentMessage = "MAIN") }}
+  SET @v_step = {% counter %}00{% br %}{% br %}
+  SET @v_insert_count = 0{% br %}
+  SET @v_delete_count = 0{% br %}  
+  SET @v_current_datetime = {{ currentDateTimeFormula() }}{% br %}{% br %}
+  BEGIN TRY{% br %}{% br %}
+    BEGIN TRANSACTION{% br %}{% br %} 
+
+{%- if hasCCI == false %}
+{#- Update changed records #}    
+      {{- addProcedureCommentBlock(indent = "      ",commentMessage = "Update changed records") }}
+      SET @v_step = {% counter %}00{% br %}{% br %}
+      {%- if hasBK == true %}
+      UPDATE [TABLEOWNER].[{{ table.name }}] WITH ( TABLOCKX ){% br %}
+      {{- addUpdateColumnsReplace(indent = "      " ) }}
+      {%- if table.sourceJoinDetails.join | trim != "" %}      {{ getLines(indent="      ",object = table.sourceJoinDetails.join) }}{% br %}{%- endif %}      
+      {{- addWhereBKColumns(indent = "      ", firstInClause = true ) }}
+      {%- if hasChangeHash == false %}
+        {{- addWhereLDTColumn(indent = "      ", firstInClause = false ) }}
+      {%- else %}
+        {{- addWhereChangingColumns(indent = "      ", firstInClause = false ) }}      
+      {%- endif %}
+      ;{% br %}{% br %}
+      SELECT @v_row_count = @@ROWCOUNT{% br %}{% br %}
+      SET @v_update_count = @v_update_count + @v_row_count{% br %}{% br %}
+      {{- addDetailMessage(indent = "      ",message = "Updated : ' + CONVERT(VARCHAR,COALESCE(@v_row_count,0)) + ' rows") }}
+      {%- else %}
+      BUSINESS KEY MISSING!
+      {%- endif %}
+      {% br %}
+      
+{%- else %}       
+{#- Delete expiring records #}    
+      {{- addProcedureCommentBlock(indent = "      ",commentMessage = "Delete expiring records") }}
+      SET @v_step = {% counter %}00{% br %}{% br %}
+      {%- if hasBK == true %}
+      DELETE {{ table.name }} WITH ( TABLOCKX ){% br %}
+      FROM   [TABLEOWNER].[{{ table.name }}] {{ table.name }} {% br %}
+      {{ table.sourceJoinDetails.join.replace("FROM","     ,") }}{% br %}
+      {{- addWhereBKColumns(indent = "      ", firstInClause = true ) }}
+      {%- if hasChangeHash == false %}
+        {{- addWhereLDTColumn(indent = "      ", firstInClause = false ) }}
+      {%- else %}
+        {{- addWhereChangingColumns(indent = "      ", firstInClause = false ) }}      
+      {%- endif %}
+      ;{% br %}{% br %}
+      SELECT @v_row_count = @@ROWCOUNT{% br %}{% br %}
+      SET @v_delete_count = @v_delete_count + @v_row_count{% br %}{% br %}
+      {{- addDetailMessage(indent = "      ",message = "Deleted : ' + CONVERT(VARCHAR,COALESCE(@v_row_count,0)) + ' rows") }}
+      {%- else %}
+      SET @v_sql = N'TRUNCATE TABLE [TABLEOWNER].[{{ table.name }}];'{% br %}
+      EXEC @v_return_status = sp_executesql @v_sql{% br %}{% br %}
+      {%- endif %}
+      {% br %}
+{%- endif %}      
+      
+{#- Insert new records #}    
+      {{- addProcedureCommentBlock(indent = "      ",commentMessage = "Insert new records") }}
+      SET @v_step = {% counter %}00{% br %}{% br %}
+      INSERT INTO [TABLEOWNER].[{{ table.name }}] WITH ( TABLOCKX ){% br %}
+      ({% br %}
+             {{- addInsertColumns(indent = "             ") }}    
+      ){% br %}
+      {%- include "nu3_sqlserver_block_select_fact" with {"indent":"      "} %}
+      ;{% br %}{% br %}
+      SELECT @v_row_count = @@ROWCOUNT{% br %}{% br %}
+    COMMIT{% br %}{% br %}
+    SET @v_insert_count = @v_insert_count + @v_row_count{% br %}{% br %}
+    {{- addDetailMessage(indent = "    ",message = "Inserted : ' + CONVERT(VARCHAR,COALESCE(@v_row_count,0)) + ' rows") }}
+    {% br %}        
+    
+{#- Finish Up #}
+    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Finish Up") }}
+    SET @v_step = {% counter %}00{% br %}{% br %}
+    {{- addFinishTask() }}
+    {{- addReturnMessage() }}
+  END TRY{% br %}
+  {{- addProcedureException() -}}
