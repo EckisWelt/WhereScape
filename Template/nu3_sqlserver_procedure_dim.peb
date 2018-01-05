@@ -1,0 +1,133 @@
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- DBMS Name          : SQL Server                                                                                                                       -- #}
+{# -- Template Name      : nu3_sqlserver_procedure_dim                                                                                                      -- #}
+{# -- Description        : This template loads data from a stage table into a                                                                               -- #}
+{# --                      dimension table                                                                                                                  -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- History                                                                                                                                               -- #}
+{# -- 20170901 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
+{# -- 20171013 | Eckhard Zemp         | Added ability to overwrite dim_key                                                                                  -- #}
+{# -- 20171122 | Eckhard Zemp         | Redesign                                                                                                            -- #}
+{# -- 20171122 | Eckhard Zemp         | Add Zero Key Extended Property                                                                                      -- #}
+{# -- 20171124 | Eckhard Zemp         | Separate WHERE NOT EXISTS layer                                                                                     -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+
+{#- Load utility macros #}
+  {%- import "nu3_sqlserver_utility_configuration" -%}
+  {%- import "nu3_sqlserver_utility_elements" -%}
+  {%- import "nu3_sqlserver_utility_snippets" -%}
+  {%- import "nu3_sqlserver_utility_procedure" -%}
+
+{#- Variables #}
+  {%- set templateVersion = "20171124" -%}
+  {%- set sysObjectType = "TABLE" -%}
+  {%- set hasArtificialColumnWithSourceTable = false -%}
+  {%- from table.columns as column where column.artificial == true and column.sourceTable is defined -%}
+    {%- set hasArtificialColumnWithSourceTable = true -%}
+  {%- endfrom %}
+  {%- set hasChangeHash = false %}
+  {%- from table.columns as column where column.changeHashKey -%}
+    {%- set hasChangeHash = true %}
+  {%- endfrom %}
+  {%- set insertZeroKey = true -%}
+  {%- if table.extendedPropertyValuesByName.insert_zero_key is defined -%}
+    {%- set list = table.extendedPropertyValuesByName.insert_zero_key -%}
+    {%- for item in (list | lines ) -%}
+      {%- if item | trim == "false" -%}{%- set insertZeroKey = false -%}{%- endif -%}
+    {%- endfor -%} 
+  {%- endif -%}
+  
+{#- Properties #}
+  {%- if table.sourceJoinDetails.join is defined %}{%- endif %}
+
+{#- Procedure Header#}
+  {{- addProcedureDocumentation(templateVersion) }}
+  {{- addProcedureHeader() }}
+  {{- addProcedureCommentBlock(commentMessage = "MAIN") }}
+  SET @v_step = {% counter %}00{% br %}{% br %}
+  SET @v_insert_count = 0{% br %}
+  SET @v_update_count = 0{% br %}  
+  SET @v_current_datetime = {{ currentDateTimeFormula() }}{% br %}{% br %}
+  BEGIN TRY{% br %}{% br %}
+
+{%- if insertZeroKey == true -%}
+{#- Add zero key row when lookup to this table is null #}    
+    {{- addProcedureCommentBlock(indent = "    ",commentMessage = "Insert Zero Key Record for lookups") }}
+    SET @v_step = {% counter %}00{% br %}{% br %}  
+    BEGIN TRANSACTION{% br %}{% br %}
+      SET IDENTITY_INSERT [TABLEOWNER].[{{ table.name }}] ON{% br %}{% br %}
+      INSERT INTO [TABLEOWNER].[{{ table.name }}] WITH ( TABLOCKX ){% br %}
+      ({% br %}
+              {{- addInsertColumnsDimZeroKey(indent = "             ") }}
+      ){% br %}
+{#- Select Load #}
+      SELECT *{% br %}
+      FROM   ({% br %}
+{#- Select Extract #}
+        SELECT {% br %}
+               {{- addSelectColumnsDimZeroKey(indent = "               ") }}      
+      ) AS {{ table.name }}{% br %}   
+      {{- addWhereArtificialNotExists(indent = "      ") }}
+      SELECT @v_row_count = @@ROWCOUNT{% br %}{% br %}
+      SET IDENTITY_INSERT [TABLEOWNER].[{{ table.name }}] OFF{% br %}
+      ;{% br %}{% br %}
+    COMMIT{% br %}{% br %}
+    IF @v_row_count > 0{% br %}
+    BEGIN{% br %}
+      SET @v_insert_count = @v_insert_count + @v_row_count{% br %}{% br %}
+      {{- addDetailMessage(indent = "      ",message = "Inserted : ' + CONVERT(VARCHAR,COALESCE(@v_row_count,0)) + ' rows") }}      
+    END{% br %}
+    {% br %}
+{%- endif -%}    
+           
+{#- Update changed rows #}    
+    BEGIN TRANSACTION{% br %}{% br %}
+    {{- addProcedureCommentBlock(indent = "      ",commentMessage = "Update changed records") }}
+      SET @v_step = {% counter %}00{% br %}{% br %}
+      UPDATE [TABLEOWNER].[{{ table.name }}] WITH ( TABLOCKX ){% br %}
+      {{- addUpdateColumnsReplace(indent = "      " ) }}
+      {%- if table.sourceJoinDetails.join | trim != "" %}      {{ getLines(indent="      ",object = table.sourceJoinDetails.join) }}{% br %}{%- endif %}      
+      {{- addWhereBKColumns(indent = "      ", firstInClause = true ) }}
+      {%- if hasChangeHash == false %}
+        {{- addWhereLDTColumn(indent = "      ", firstInClause = false ) }}
+      {%- else %}
+        {{- addWhereChangingColumns(indent = "      ", firstInClause = false ) }}      
+      {%- endif %}
+      ;{% br %}{% br %}
+      SELECT @v_row_count = @@ROWCOUNT{% br %}{% br %}
+      SET @v_update_count = @v_update_count + @v_row_count{% br %}{% br %}
+      {{- addDetailMessage(indent = "      ",message = "Updated : ' + CONVERT(VARCHAR,COALESCE(@v_row_count,0)) + ' rows") }}
+      {% br %}
+    
+{#- Insert new records #}    
+      {{- addProcedureCommentBlock(indent = "      ",commentMessage = "Insert new records") }}
+      SET @v_step = {% counter %}00{% br %}{% br %}
+      {%- if hasArtificialColumnWithSourceTable == true %}
+      SET IDENTITY_INSERT [TABLEOWNER].[{{ table.name }}] ON{% br %}{% br %}    
+      {%- endif %}
+      INSERT INTO [TABLEOWNER].[{{ table.name }}] WITH ( TABLOCKX ){% br %}
+      ({% br %}
+             {{- addInsertColumns(indent = "            ") }}    
+      ){% br %}
+      {%- include "nu3_sqlserver_block_select_dim" with {"indent":"      "} %}      
+      ;{% br %}{% br %}
+      SELECT @v_row_count = @@ROWCOUNT{% br %}{% br %}
+      {%- if hasArtificialColumnWithSourceTable == true %}    
+      SET IDENTITY_INSERT [TABLEOWNER].[{{ table.name }}] OFF{% br %}{% br %}    
+      {%- endif %}      
+    COMMIT{% br %}{% br %}
+    SET @v_insert_count = @v_insert_count + @v_row_count{% br %}{% br %}
+    {{- addDetailMessage(indent = "    ",message = "Inserted : ' + CONVERT(VARCHAR,COALESCE(@v_row_count,0)) + ' rows") }}
+    {% br %}
+                        
+{#- Finish Up #}
+    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Finish Up") }}
+    SET @v_step = {% counter %}00{% br %}{% br %}
+    {{- addFinishTask() }}
+    {{- addReturnMessage() }}
+  END TRY{% br %}
+  {{- addProcedureException() -}}
