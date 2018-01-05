@@ -15,6 +15,7 @@
 {# -- 20171124 | Eckhard Zemp         | Redesign to a fully layered approach                                                                                -- #}
 {# -- 20171208 | Eckhard Zemp         | Add optional zero key id for dimensions                                                                             -- #}
 {# -- 20171214 | Eckhard Zemp         | Optimize View Creation in WHERE and Condense                                                                        -- #}
+{# -- 20180103 | Eckhard Zemp         | Add support for Sat Driving Keys                                                                                    -- #}
 {# --                                                                                                                                                       -- #}
 {# --==============================================================================                                                                         -- #}
 
@@ -34,7 +35,7 @@
 {# --==============================================================================                                                                         -- #}
 {# -- SELECT statements                                                                                                                                     -- #}
 {# -- (ordered by execution layer)                                                                                                                          -- #}
-{# --==============================================================================                                                                         -- #}
+{# --==============================================================================                                                                         -- #}                                                                                                                         -- #}
 
 {# -- This macro adds the source columns and transformations for a SELECT statement to load data from a source table -- #}
 {% macro addSelectColumnsExtract(indent = "       ",firstInClause = true) %}
@@ -156,45 +157,86 @@
   {%- set objectPrefixHub = objectPrefixHub() | trim %}
   {%- set objectPrefixLink = objectPrefixLink() | trim %}
   {%- set objectPrefixSatellite = objectPrefixSatellite() | trim %}
+  {%- set settingStageCondense = settingStageCondense() | trim %}  
+  {%- set settingDataStoreCondense = settingDataStoreCondense() | trim %} 
+  {%- set settingHubCondense = settingHubCondense() | trim %} 
+  {%- set settingLinkCondense = settingLinkCondense() | trim %} 
+  {%- set settingSatelliteCondense = settingSatelliteCondense() | trim %} 
+  {%- set settingDimensionCondense = settingDimensionCondense() | trim %} 
+  {%- set settingFactCondense = settingFactCondense() | trim %} 
   {%- set hasBK = false -%}
   {%- from table.columns as column where column.businessKey -%}
     {%- set hasBK = true -%}
   {%- endfrom -%}  
   {%- if table.objectType == Types.ObjectType.Stage or (table.objectType == Types.ObjectType.View and table.name contains objectPrefixStage) -%}
-    {%- if hasBK == true %}
-      {{- indent }},ROW_NUMBER() OVER (PARTITION BY {{ getBKString() }} ORDER BY {% from table.columns as column where column.name == dssLoadDate or column.name == dssSequenceNo %}
-        {%- if not loop.first -%}, {% endif %}
-        {{- column.name }} DESC
-      {%- endfrom %}) AS {{ dssRowNo() }}{% br %}
-    {% endif %}
-  {%- elseif table.objectType == Types.ObjectType.Hub or (table.objectType == Types.ObjectType.View and table.name contains objectPrefixHub) -%}
-    {{- indent }},ROW_NUMBER() OVER (PARTITION BY {{ getHashKeyString() }} , {{ getBKString() }} ORDER BY {{ dssLoadDate() }} ASC ) AS {{ dssRowNo() }}{% br %}    
-  {%- elseif table.objectType == Types.ObjectType.Link or (table.objectType == Types.ObjectType.View and table.name contains objectPrefixLink) -%}
-    {{- indent }},ROW_NUMBER() OVER (PARTITION BY {{ getHashKeyString() }} ORDER BY {{ dssLoadDate() }} ASC ) AS {{ dssRowNo() }}{% br %}        
-  {%- elseif table.objectType == Types.ObjectType.Satellite or (table.objectType == Types.ObjectType.View and table.name contains objectPrefixSatellite) -%}
-    {%- from table.columns as column where column.changeHashKey -%}
-      {{- indent }},CASE WHEN LAG( {{ dssChangeHash() }} , 1 , {{ dssChangeHashDefaultValue() }} ) OVER ( PARTITION BY {{ getHashKeyString() }} ORDER BY {{ dssLoadDate() }} ) = {{ dssChangeHash() }} THEN 0{% br %}
-      {{- indent }}      ELSE 1{% br %}
-      {{- indent }} END AS is_{{ column.name }}_change{% br %}
-    {%- endfrom %}
-    {%- from table.columns as column where column.name == dssLoadDate -%}    
-      {{- indent }},CASE WHEN LAG( {{ dssLoadDate() }} , 1 , {{ dssDateTimeMinValue() }} ) OVER ( PARTITION BY {{ getHashKeyString() }} ORDER BY {{ dssLoadDate() }} ) = {{ dssLoadDate() }} THEN 0{% br %}
-      {{- indent }}      ELSE 1{% br %}
-      {{- indent }} END AS is_{{ column.name }}_change{% br %}
-    {%- endfrom %}
-  {%- elseif table.objectType == Types.ObjectType.Dimension or (table.objectType == Types.ObjectType.View and table.name contains objectPrefixDimension) -%}
-  {%- elseif table.objectType == Types.ObjectType.Fact or (table.objectType == Types.ObjectType.View and table.name contains objectPrefixFact) -%}
+    {%- if settingStageCondense == "true" %}
+      {%- if hasBK == true %}
+        {{- indent }},ROW_NUMBER() OVER (PARTITION BY {{ getBKString() }} ORDER BY {% from table.columns as column where column.name == dssLoadDate or column.name == dssSequenceNo %}
+          {%- if not loop.first -%}, {% endif %}
+          {{- column.name }} DESC
+        {%- endfrom %}) AS {{ dssRowNo() }}{% br %}
+      {%- endif %}
+    {%- endif %}
   {%- elseif table.objectType == Types.ObjectType.DataStore -%}
-    {%- from table.columns as column where column.changeHashKey -%}  
-      {{- indent }},CASE WHEN LAG( {{ dssChangeHash() }} , 1 , {{ dssChangeHashDefaultValue() }} ) OVER ( PARTITION BY {{ getBKString() }} ORDER BY {{ dssLoadDate() }} ) = {{ dssChangeHash() }} THEN 0{% br %}
-      {{- indent }}      ELSE 1{% br %}
-      {{- indent }} END AS is_{{ column.name }}_change{% br %}
-    {%- endfrom %}
-    {%- from table.columns as column where column.name == dssLoadDate -%}    
-      {{- indent }},CASE WHEN LAG( {{ dssLoadDate() }} , 1 , {{ dssDateTimeMinValue() }} ) OVER ( PARTITION BY {{ getBKString() }} ORDER BY {{ dssLoadDate() }} ) = {{ dssLoadDate() }} THEN 0{% br %}
-      {{- indent }}      ELSE 1{% br %}
-      {{- indent }} END AS is_{{ column.name }}_change{% br %}    
-    {%- endfrom %}
+    {%- if settingDataStoreCondense == "true" %}  
+      {%- from table.columns as column where column.changeHashKey -%}  
+        {{- indent }},CASE WHEN LAG( {{ dssChangeHash() }} , 1 , {{ dssChangeHashDefaultValue() }} ) OVER ( PARTITION BY {{ getBKString() }} ORDER BY {{ dssLoadDate() }} ) = {{ dssChangeHash() }} THEN 0{% br %}
+        {{- indent }}      ELSE 1{% br %}
+        {{- indent }} END AS is_{{ column.name }}_change{% br %}
+      {%- endfrom %}
+      {%- from table.columns as column where column.name == dssLoadDate -%}    
+        {{- indent }},CASE WHEN LAG( {{ dssLoadDate() }} , 1 , {{ dssDateTimeMinValue() }} ) OVER ( PARTITION BY {{ getBKString() }} ORDER BY {{ dssLoadDate() }} ) = {{ dssLoadDate() }} THEN 0{% br %}
+        {{- indent }}      ELSE 1{% br %}
+        {{- indent }} END AS is_{{ column.name }}_change{% br %}    
+      {%- endfrom %}    
+    {%- endif %}
+  {%- elseif table.objectType == Types.ObjectType.Hub or (table.objectType == Types.ObjectType.View and table.name contains objectPrefixHub) -%}
+    {%- if settingHubCondense == "true" %}  
+      {{- indent }},ROW_NUMBER() OVER (PARTITION BY {{ getHashKeyString() }} , {{ getBKString() }} ORDER BY {{ dssLoadDate() }} ASC ) AS {{ dssRowNo() }}{% br %}    
+    {%- endif %}
+  {%- elseif table.objectType == Types.ObjectType.Link or (table.objectType == Types.ObjectType.View and table.name contains objectPrefixLink) -%}
+    {%- if settingLinkCondense == "true" %}  
+      {{- indent }},ROW_NUMBER() OVER (PARTITION BY {{ getHashKeyString() }} ORDER BY {{ dssLoadDate() }} ASC ) AS {{ dssRowNo() }}{% br %}        
+    {%- endif %}
+  {%- elseif table.objectType == Types.ObjectType.Satellite or (table.objectType == Types.ObjectType.View and table.name contains objectPrefixSatellite) -%}
+    {%- if settingSatelliteCondense == "true" %}  
+      {%- set driving_key_column = "" -%}        
+      {%- if table.extendedPropertyValuesByName.driving_key_column is defined -%}
+        {%- set list = table.extendedPropertyValuesByName.driving_key_column -%}
+        {%- for item in (list | lines) -%}
+          {%- if item | trim != "" -%}{%- set driving_key_column = item | trim -%}{%- endif %}
+        {%- endfor %} 
+      {%- endif -%}
+      {%- from table.columns as column where column.name == dssLoadDate -%}    
+        {{- indent }},CASE WHEN LAG( {{ dssLoadDate() }} , 1 , {{ dssDateTimeMinValue() }} ) OVER ( PARTITION BY {{ getHashKeyString() }} ORDER BY {{ dssLoadDate() }} ) = {{ dssLoadDate() }} THEN 0{% br %}
+        {{- indent }}      ELSE 1{% br %}
+        {{- indent }} END AS is_{{ column.name }}_change{% br %}
+      {%- endfrom %}
+      {%- if driving_key_column | trim != "" -%}    
+        {%- from table.columns as column where column.changeHashKey -%}
+          {{- indent }},CASE WHEN LAG( {{ dssChangeHash() }} , 1 , {{ dssChangeHashDefaultValue() }} ) OVER ( PARTITION BY {{ driving_key_column }} ORDER BY {{ dssEventDate() }} ) = {{ dssChangeHash() }} THEN 0{% br %}
+          {{- indent }}      ELSE 1{% br %}
+          {{- indent }} END AS is_{{ column.name }}_change{% br %}
+        {%- endfrom %}
+        {%- from table.columns as column where column.name == driving_key_column -%}
+          {{- indent }},CASE WHEN LAG( {{ column.name }} , 1 , {{ dssChangeHashDefaultValue() }} ) OVER ( PARTITION BY {{ column.name }} ORDER BY {{ dssEventDate() }} ) = {{ column.name }} THEN 0{% br %}
+          {{- indent }}      ELSE 1{% br %}
+          {{- indent }} END AS is_{{ column.name }}_change{% br %}
+        {%- endfrom -%}
+      {%- else -%}
+        {%- from table.columns as column where column.changeHashKey -%}
+          {{- indent }},CASE WHEN LAG( {{ dssChangeHash() }} , 1 , {{ dssChangeHashDefaultValue() }} ) OVER ( PARTITION BY {{ getHashKeyString() }} ORDER BY {{ dssLoadDate() }} ) = {{ dssChangeHash() }} THEN 0{% br %}
+          {{- indent }}      ELSE 1{% br %}
+          {{- indent }} END AS is_{{ column.name }}_change{% br %}
+        {%- endfrom %}    
+      {%- endif -%}
+    {%- endif -%}
+  {%- elseif table.objectType == Types.ObjectType.Dimension or (table.objectType == Types.ObjectType.View and table.name contains objectPrefixDimension) -%}
+    {%- if settingDimensionCondense == "true" %}
+    {%- endif %}  
+  {%- elseif table.objectType == Types.ObjectType.Fact or (table.objectType == Types.ObjectType.View and table.name contains objectPrefixFact) -%}
+    {%- if settingFactCondense == "true" %}
+    {%- endif %}
   {%- endif %}      
 {% endmacro %}
 
@@ -347,6 +389,24 @@
       {{ column.transform | trim }}
     {%- elseif column.updateTime -%} 
       @v_current_datetime
+    {%- else -%}
+      {{ column.source }}
+    {%- endif %}{% br %}
+  {%- endfrom %}
+{% endmacro %}
+
+{# -- This macro adds the SET columns for an UPDATE statement to modify the first available record in a hub -- #}
+{% macro addUpdateColumnsLoadDate(indent = "    ",firstInClause = true) %}
+  {%- set empty = "" %}
+  {%- set dssLoadDate = dssLoadDate() | trim %}
+  {%- set dssRecordSource = dssRecordSource() | trim %}    
+  {%- from table.columns as column where column.name == dssLoadDate or column.name == dssRecordSource or column.updateTime %}
+    {{- indent }}
+    {%- if loop.first and firstInClause %}SET     {% else %}       ,{% endif %}{{ column.name }} = {{ empty }}
+    {%- if column.transform | trim != "" -%}
+      {{ column.transform | trim }}
+    {%- elseif column.updateTime -%}
+      @v_current_datetime            
     {%- else -%}
       {{ column.source }}
     {%- endif %}{% br %}
@@ -640,8 +700,26 @@
 {# --==============================================================================                                                                         -- #}
 
 {# -- This macro inserts the where clause for the max(dss_load_datetime) of the target -- #}
-{% macro addWhereDssLoadDateMax(indent = "    ",targetTable = "MISSING") %}
-  {{- indent }}WHERE  {{ dssLoadDate() }} > ( SELECT ISNULL(MAX({{ dssLoadDate() }}) , {{ dssDateTimeMinValue() }}) FROM [TABLEOWNER].[{{ targetTable }}]){% br %}
+{% macro addWhereDssLoadDateMax(indent = "    ") %}
+  {%- set target_object_name = "" -%}        
+  {%- if table.extendedPropertyValuesByName.target_object_name is defined -%}
+    {%- set list = table.extendedPropertyValuesByName.target_object_name -%}
+    {%- for item in (list | lines) -%}
+      {%- if item | trim != "" -%}{%- set target_object_name = item | trim -%}{%- endif %}
+    {%- endfor %} 
+  {%- endif -%}
+  {%- if target_object_name != "" -%}
+  {{- indent }}WHERE  {{ dssLoadDate() }} > ( SELECT ISNULL(MAX({{ dssLoadDate() }}),{{ dssDateTimeMinValue() }}) FROM [TABLEOWNER].[{{ target_object_name }}]){% br %}
+  {%- endif -%}
+{% endmacro %}
+
+{% macro addWhereHashKeyColumn(indent = "       ", firstInClause = true ) %}
+  {%- from table.columns as column where column.hubHashKey or column.linkHashKey -%}
+    {%- if loop.first %}
+      {{- indent }}    
+      {%- if firstInClause %}WHERE  {% else %}       AND {% endif %}{{ table.name }}.{{ column.name }} = {{ column.source }}{% br %}    
+    {%- endif %}
+  {%- endfrom -%}
 {% endmacro %}
 
 {% macro addWhereBKColumns(indent = "       ", firstInClause = true ) %}
@@ -683,10 +761,23 @@
 
 {% macro addWhereCondenseSat(indent = "       ", firstInClause = true ) %}
   {%- set dssLoadDate = dssLoadDate() | trim %}
-  {%- from table.columns as column where column.changeHashKey or column.name == dssLoadDate -%}
+  {%- set driving_key_column = "" -%}        
+  {%- if table.extendedPropertyValuesByName.driving_key_column is defined -%}
+    {%- set list = table.extendedPropertyValuesByName.driving_key_column -%}
+    {%- for item in (list | lines) -%}
+      {%- if item | trim != "" -%}{%- set driving_key_column = item | trim -%}{%- endif %}
+    {%- endfor %} 
+  {%- endif -%}      
+  {%- from table.columns as column where column.name == dssLoadDate -%}
     {{- indent }}
     {%- if loop.first and firstInClause %}WHERE  {% else %}       AND {% endif %}is_{{ column.name }}_change = 1{% br %}    
   {%- endfrom -%}
+  {{- indent }}       AND ({% br %}
+  {%- from table.columns as column where column.changeHashKey or column.name == driving_key_column -%}
+    {{- indent }}
+    {%- if loop.first and firstInClause %}         {% else %}         OR {% endif %}is_{{ column.name }}_change = 1{% br %}
+  {%- endfrom -%}  
+  {{- indent }}       ){% br %}  
 {% endmacro %}
 
 {# --==============================================================================                                                                         -- #}
@@ -752,6 +843,18 @@ AND ") -%}
   {%- set dssExpiryDate = dssExpiryDate() | trim %}  
   {%- set isActive = isActive() | trim %}    
   {%- set empty = "" -%}
+  {%- set driving_key_column = getHashKeyString() -%}  
+  {%- from table.columns as column where column.sourceTable is defined -%}
+    {%- if loop.first -%}  
+      {%- fetch column.sourceTable %}      
+      {%- if column.sourceTable.extendedPropertyValuesByName.driving_key_column is defined -%}
+        {%- set list = column.sourceTable.extendedPropertyValuesByName.driving_key_column -%}
+        {%- for item in (list | lines ) -%}
+          {%- if item | trim != "" -%}{%- set driving_key_column = item | trim -%}{%- endif -%}
+        {%- endfor -%} 
+      {%- endif -%}             
+    {%- endif -%}
+  {%- endfrom -%}
   {%- from table.columns as column where ((column.sourceTable is defined or column.transform != "") and column.lookupKey == false) or column.name == dssEffectivityDate or column.name == dssExpiryDate or column.dssEndDate %}
     {{- indent }}
     {%- if loop.first and firstInClause %} {% else %},{% endif %}
@@ -764,9 +867,15 @@ AND ") -%}
         {%- endfor %} 
       {%- endif %}  
       {%- if first_start_datetime_value | trim == "" -%}
-        CASE WHEN LAG({{ dssStartDate() }},1,NULL) OVER (PARTITION BY {{ getHashKeyString() }} ORDER BY {{ dssStartDate() }} ) IS NULL THEN {{ dssDateTimeMinValue() }} ELSE {{ dssStartDate() }} END
+        CASE WHEN LAG({{ dssStartDate() }},1,NULL) OVER (PARTITION BY {{ getHashKeyString() }} ORDER BY {{ dssStartDate() }} ) IS NULL{% br %}
+        {{- indent }}      THEN {{ dssDateTimeMinValue() }}{% br %}
+        {{- indent }}      ELSE {{ dssStartDate() }}{% br %}
+        {{- indent }} END
       {%- else -%}
-        CASE WHEN LAG({{ dssStartDate() }},1,NULL) OVER (PARTITION BY {{ getHashKeyString() }} ORDER BY {{ dssStartDate() }} ) IS NULL THEN {{ first_start_datetime_value  }} ELSE {{ dssStartDate() }} END
+        CASE WHEN LAG({{ dssStartDate() }},1,NULL) OVER (PARTITION BY {{ getHashKeyString() }} ORDER BY {{ dssStartDate() }} ) IS NULL{% br %}
+        {{- indent }}      THEN {{ first_start_datetime_value  }}{% br %}
+        {{- indent }}      ELSE {{ dssStartDate() }}{% br %}
+        {{- indent }} END
       {%- endif -%}
     {%- elseif column.dssEndDate -%}
       LEAD(DATEADD(ns,-100,{{ dssStartDate() }}),1,{{ dssDateTimeMaxValue() }}) OVER (PARTITION BY {{ getHashKeyString() }} ORDER BY {{ dssStartDate() }})
@@ -779,20 +888,28 @@ AND ") -%}
         {%- endfor %} 
       {%- endif %}
       {%- if first_effectivity_datetime_value | trim == "" -%}               
-        CASE WHEN LAG({{ dssEventDate() }},1,NULL) OVER (PARTITION BY {{ getHashKeyString() }} ORDER BY {{ dssEventDate() }}) IS NULL THEN {{ dssDateTimeMinValue() }} ELSE {{ dssEventDate() }} END
+        CASE WHEN LAG({{ dssEventDate() }},1,NULL) OVER (PARTITION BY {{ driving_key_column }} ORDER BY {{ dssEventDate() }},{{ dssLoadDate() }}) IS NULL{% br %}
+        {{- indent }}      THEN {{ dssDateTimeMinValue() }}{% br %}
+        {{- indent }}      ELSE {{ dssEventDate() }}{% br %}
+        {{- indent }} END
       {%- else -%}
-        CASE WHEN LAG({{ dssEventDate() }},1,NULL) OVER (PARTITION BY {{ getHashKeyString() }} ORDER BY {{ dssEventDate() }}) IS NULL THEN {{ first_effectivity_datetime_value }} ELSE {{ dssEventDate() }} END
+        CASE WHEN LAG({{ dssEventDate() }},1,NULL) OVER (PARTITION BY {{ driving_key_column }} ORDER BY {{ dssEventDate() }},{{ dssLoadDate() }}) IS NULL{% br %}
+        {{- indent }}      THEN {{ first_effectivity_datetime_value }}{% br %}
+        {{- indent }}      ELSE {{ dssEventDate() }}{% br %}
+        {{- indent }} END
       {%- endif -%}
     {%- elseif column.name == dssExpiryDate -%}
       {%- from table.columns as column2 %}
         {%- if column2.name == isActive %}
-          {{- empty }}CASE WHEN {{ table.name }}.{{ column2.name }} = 0 THEN {{ table.name }}.{{ dssEventDate() }} ELSE{% br %}{{- indent }} {{- empty }}
+          {{- empty }}CASE WHEN {{ table.name }}.{{ column2.name }} = 0{% br %}
+          {{- indent }}      THEN {{ table.name }}.{{ dssEventDate() }}{% br %}
+          {{- indent }}      ELSE {{ empty }}
         {%- endif %}
       {%- endfrom %}    
-        {{- empty }}LEAD(DATEADD(ns,-100,{{ dssEventDate() }}),1,{{ dssDateTimeMaxValue() }}) OVER (PARTITION BY {{ getHashKeyString() }} ORDER BY {{ dssEventDate() }},{{ dssLoadDate() }})
+        {{- empty }}LEAD(DATEADD(ns,-100,{{ dssEventDate() }}),1,{{ dssDateTimeMaxValue() }}) OVER (PARTITION BY {{ driving_key_column }} ORDER BY {{ dssEventDate() }},{{ dssLoadDate() }}){% br %}
       {%- from table.columns as column2 %}
         {%- if column2.name == isActive %}
-          {{- empty }} END
+          {{- indent }} END
         {%- endif %}
       {%- endfrom %}
     {%- else -%}
