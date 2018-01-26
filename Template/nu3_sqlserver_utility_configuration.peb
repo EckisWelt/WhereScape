@@ -96,6 +96,10 @@
   DATETIME2(7)
 {%- endmacro -%}
 
+{%- macro hashDataType() -%}
+  BINARY(16)
+{%- endmacro -%}
+
 {# --==============================================================================                                                                         -- #}
 {# -- Values                                                                                                                                                -- #}
 {# --==============================================================================                                                                         -- #}
@@ -157,6 +161,22 @@
 {%- endmacro -%}
 
 {# --==============================================================================                                                                         -- #}
+{# -- Column Prefixes                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+
+{%- macro columnPrefixDimension() -%}
+  dim_
+{%- endmacro -%}
+
+{%- macro columnPrefixHub() -%}
+  hub_
+{%- endmacro -%}
+
+{%- macro columnPrefixLink() -%}
+  link_
+{%- endmacro -%}
+
+{# --==============================================================================                                                                         -- #}
 {# -- FileGroup                                                                                                                                             -- #}
 {# --==============================================================================                                                                         -- #}
 
@@ -185,7 +205,7 @@
 {# --==============================================================================                                                                         -- #}
 
 {# -- Data into Hubs are usually getting inserted only. But there is an option to allow updating the dssLoadDate if they are ealier than the saved ones -- #}
-{%- macro settingHubUpdate() -%}
+{%- macro settingHubLinkUpdate() -%}
   true
 {%- endmacro -%}
 
@@ -198,11 +218,7 @@
   true
 {%- endmacro -%}
 
-{%- macro settingHubCondense() -%}
-  true
-{%- endmacro -%}
-
-{%- macro settingLinkCondense() -%}
+{%- macro settingHubLinkCondense() -%}
   true
 {%- endmacro -%}
 
@@ -216,4 +232,29 @@
 
 {%- macro settingFactCondense() -%}
   false
+{%- endmacro -%}
+
+{# -- Verify, if Metadata is correct -- #}
+{%- macro settingStageCheckMetaData() -%}
+  true
+{%- endmacro -%}
+
+{%- macro settingDataStoreCheckMetaData() -%}
+  true
+{%- endmacro -%}
+
+{%- macro settingHubLinkCheckMetaData() -%}
+  true
+{%- endmacro -%}
+
+{%- macro settingSatelliteCheckMetaData() -%}
+  true
+{%- endmacro -%}
+
+{%- macro settingDimensionCheckMetaData() -%}
+  true
+{%- endmacro -%}
+
+{%- macro settingFactCheckMetaData() -%}
+  true
 {%- endmacro -%}
