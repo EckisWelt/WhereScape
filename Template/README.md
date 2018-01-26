@@ -49,5 +49,7 @@ By designing a block I can reuse it in a view and a stored procedure at the same
 
 Think further and you are able to create virtual data warehouse.
 
+## Notes
 
+If you are getting into Pebble templating and using my code as an example you might wonder, why I teared e.g. "from ... where" apart into "from .../if ...". Or you might also see that in a macro I created a manual list instead of using "from...". The reason is that Pebble is getting "picky", the larger my template collection grew. There is something in the engine not working as expected.
 
