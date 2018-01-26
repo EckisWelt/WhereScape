@@ -1,0 +1,160 @@
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- DBMS Name          : SQL Server                                                                                                                       -- #}
+{# -- Template Name      : nu3_sqlserver_procedure_stage_merge                                                                                              -- #}
+{# -- Description        : This template loads data from many source tables into a                                                                          -- #}
+{# --                      stage table to be used by many destination table types                                                                           -- #}
+{# --                                                                                                                                                       -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- History                                                                                                                                               -- #}
+{# -- 20170714 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
+{# -- 20170717 | Eckhard Zemp         | Rename                                                                                                              -- #}
+{# -- 20170814 | Eckhard Zemp         | Hash Update                                                                                                         -- #}
+{# -- 20170825 | Eckhard Zemp         | Set TABLEOWNER for looped objects                                                                                   -- #}
+{# -- 20171108 | Eckhard Zemp         | Beautify                                                                                                            -- #}
+{# -- 20171212 | Eckhard Zemp         | Finally found a way to reuse the stage block                                                                        -- #}
+{# -- 20180105 | Eckhard Zemp         | Verify Meta Data                                                                                                    -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+
+{#- Load utility macros #}
+  {%- import "nu3_sqlserver_utility_configuration" -%}
+  {%- import "nu3_sqlserver_utility_elements" -%}
+  {%- import "nu3_sqlserver_utility_snippets" -%}
+  {%- import "nu3_sqlserver_utility_procedure" -%}
+  {%- import "nu3_sqlserver_utility_metadata" -%}
+  {%- import "nu3_utility_metadata" -%}      
+
+{#- Variables #}
+  {%- set templateVersion = "20180105" -%}
+  {%- set sysObjectType = "TABLE" -%}
+  {%- set empty = "" -%}  
+  {%- set dssLoadDate = dssLoadDate() | trim -%}
+  {%- set settingStageCondense = settingStageCondense() | trim %}
+  {%- set settingStageCheckMetaData = settingStageCheckMetaData() | trim %}       
+  {%- set targetObjectName = "" -%}        
+  {%- if table.extendedPropertyValuesByName.target_object_name is defined -%}
+    {%- set list = table.extendedPropertyValuesByName.target_object_name -%}
+    {%- for item in (list | lines) -%}
+      {%- if item | trim != "" -%}{%- set targetObjectName = item | trim -%}{%- endif %}
+    {%- endfor %}   
+  {%- endif -%}      
+  {%- set hasBK = false -%}
+  {%- from table.columns as column where column.businessKey -%}
+    {%- set hasBK = true -%}
+  {%- endfrom -%}  
+
+{#- Properties #}
+  {%- if table.sourceJoinDetails.distinct is defined %}{%- endif %}  
+  {%- if table.sourceJoinDetails.join is defined %}{%- endif %}  
+  {%- if table.sourceJoinDetails.where is defined %}{%- endif %}  
+  {%- if table.sourceJoinDetails.groupBy is defined %}{%- endif %}    
+  
+{#- Procedure Header #}
+  {{- addProcedureDocumentation(templateVersion) }}
+  {{- addProcedureHeader() }}
+  
+{#- Metadata #}      
+  {%- if settingStageCheckMetaData == "true" -%}
+    {{- addProcedureCommentBlock(indent = "  ", commentMessage = "Metadata Check") }}      
+    {{- checkMetadata(indent = "  ") }}       
+    {{- checkMetadataSqlServer(indent = "  ") }}   
+    {% br %}    
+  {%- endif %}     
+    
+{#- Main #}       
+  {{- addProcedureCommentBlock(commentMessage = "MAIN") }}
+  SET @v_step = {% counter %}00{% br %}{% br %}
+  SET @v_insert_count = 0{% br %}
+  SET @v_current_datetime = {{ currentDateTimeFormula() }}{% br %}{% br %}
+  BEGIN TRY{% br %}{% br %}
+    
+{#- Delete old records #}
+    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Delete existing records") }}
+    SET @v_step = {% counter %}00{% br %}{% br %}
+    SET @v_sql = N'TRUNCATE TABLE [TABLEOWNER].[{{ table.name }}];'{% br %}
+    EXEC @v_return_status = sp_executesql @v_sql{% br %}{% br %}
+
+{#- Loop by source table if Merge #}
+    {#- Create a table list because sourceTablesByName doesn't work in DDL #}
+    {%- set tableList = "" %}
+    {%- set newLine = "
+" %}      
+    {%- from table.columns as column where column.sourceTable is defined %}
+      {%- fetch column.sourceTable %}
+      {%- if tableList contains column.sourceTable.name -%}{% else %}
+        {%- set tableList = tableList + column.sourceTable.name + ";" -%}
+      {%- endif %}
+    {%- endfrom %}
+
+    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Merge") }}
+    /*{% br %}
+     * List of source tables{% br %}    
+      {%- for mergeTable in (tableList.Replace(';',newLine) | lines) %}
+     * - {{ mergeTable }}{% br %}
+      {%- endfor %}
+     */{% br %}
+    {% br %}
+    
+{#- Source -#}      
+    {%- for mergeTable in (tableList.Replace(';',newLine) | lines) -%}
+    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Working on " + mergeTable) }}
+    {{- addDetailMessage(indent = "    ",message = "Load data from " + mergeTable) }}
+    {% br %}
+       
+{#- Create temporary table only if we have to calculate a hash key #}
+    {%- set TempTable = "#" + mergeTable + "_extract" -%}
+    {%- set hasHashKey = false -%}      
+    {%- from table.columns as column where (column.hubHashKey or column.linkHashKey or column.changeHashKey) and column.hashKeySources is defined and table.sourceJoinDetails.where | trim != "" -%}
+      {%- set hasHashKey = true -%}      
+    {%- endfrom -%}
+    {%- if hasHashKey == true -%}
+    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Temporary Table") }}
+    SET @v_step = {% counter %}00{% br %}{% br %}
+    SET @v_row_count = 0{% br %}{% br %}
+    IF OBJECT_ID('tempdb..{{ TempTable }}') IS NOT NULL
+      DROP TABLE {{ TempTable }}{% br %}{% br %}
+    SELECT {% br %}
+           {{- addSelectColumnsExtractMerge(indent = "          ") }}
+    INTO   {{ TempTable }}{% br %}
+    FROM   [TABLEOWNER].[{{ mergeTable }}] AS {{ mergeTable }}{% br %}
+    {% br %}
+    SELECT @v_row_count = @@ROWCOUNT{% br %}
+    {{- addDetailMessage(indent = "    ",message = TempTable + " updated. ' + CONVERT(VARCHAR,@v_row_count) + ' records added.") }}
+    {% br %}
+    {%- endif %}       
+   
+{#- Insert new records #}
+    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Insert new records") }}
+    SET @v_step = {% counter %}00{% br %}{% br %}
+    BEGIN TRANSACTION{% br %}{% br %}
+      INSERT INTO [TABLEOWNER].[{{ table.name }}] WITH ( TABLOCKX ){% br %}
+      ({% br %}
+             {{- addInsertColumns(indent = "            ") }}    
+      ){% br %}
+      {%- include "nu3_sqlserver_block_select_stage" with {"indent":"      "} %}
+      ;{% br %}{% br %}
+      SELECT @v_row_count = @@ROWCOUNT{% br %}{% br %}
+    COMMIT{% br %}{% br %}
+    SET @v_insert_count = @v_insert_count + @v_row_count{% br %}
+    {{- addDetailMessage(indent = "    ",message = table.name + " updated. ' + CONVERT(VARCHAR,@v_row_count) + ' records added.") }}
+    {% br %}
+    
+{#- CleanUp #}
+    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Clean Up") }}
+    SET @v_step = {% counter %}00{% br %}{% br %}    
+    IF OBJECT_ID('tempdb..{{ TempTable }}') IS NOT NULL{% br %}
+      DROP TABLE {{ TempTable }}{% br %}{% br %}    
+
+{#- EndLoop by source table if Merge #}
+    {%- endfor %}      
+              
+{#- Finish Up #}
+    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Finish Up") }}
+    SET @v_step = {% counter %}00{% br %}{% br %}
+    {{- addFinishTask() }}
+    {{- addReturnMessage() }}
+  END TRY{% br %}
+  {{- addProcedureException() -}}
