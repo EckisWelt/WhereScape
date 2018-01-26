@@ -11,6 +11,17 @@
 {# -- 20171213 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
 {# --                                                                                                                                                       -- #}
 {# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- Extended Properties                                                                                                                                   -- #}
+{# -- first_start_datetime_value                                                                                                                            -- #}
+{# --   By default it is set to the value in the configuration. Set it to another                                                                           -- #}
+{# --   date if you want to override.                                                                                                                       -- #}
+{# -- driving_key_column                                                                                                                                    -- #}
+{# --   Used for effectivity satellites. Specify the column which is used to                                                                                -- #}
+{# --   calculate the effectivity/expiry datetime and for the row condensing.                                                                               -- #}
+{# --   By default the driving key is the primary key of the table.                                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
 
 {#- Select Load #}
 {{- indent }}SELECT {% br %}
@@ -55,7 +66,9 @@
                      {%- endif %}
 {{- indent }}      ) AS {{ table.name }}{% br %}              
 {{- indent }}    ) AS {{ table.name }}{% br %}
-                 {{- addWhereCondenseSat(indent = indent + "    ") }}
+                 {%- if settingSatelliteCondense == "true" %}
+                   {{- addWhereCondenseSat(indent = indent + "    ") }}
+                 {%- endif %}
 {{- indent }}  ) AS {{ table.name }}{% br %}      
                {%- if hasVersionColumn == true %}
                {{- addSatCurrentVersion(indent = indent + "  ") }}
