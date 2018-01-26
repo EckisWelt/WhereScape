@@ -1,0 +1,40 @@
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- DBMS Name          : SQL Server                                                                                                                       -- #}
+{# -- Template Name      : nu3_sqlserver_ddl_view_dim                                                                                                           -- #}
+{# -- Description        : This template creates a dimension view based on the meta data                                                                    -- #}
+{# -- Author             : Eckhard Zemp                                                                                                                     -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- Notes / History                                                                                                                                       -- #}
+{# -- 20171214 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+
+{#- Load some utility macros #}
+  {%- import "nu3_sqlserver_utility_configuration" -%}
+  {%- import "nu3_sqlserver_utility_elements" -%}
+  {%- import "nu3_sqlserver_utility_snippets" -%}
+  {%- import "nu3_sqlserver_utility_ddl" -%}
+
+{#- Variables #}
+  {%- set templateVersion = "20171214" -%}
+  {%- set sysObjectType = "VIEW" -%}
+  {%- set settingDimensionCondense = settingDimensionCondense() | trim %}    
+  {%- set settingDimensionCheckMetaData = settingDimensionCheckMetaData() | trim %}   
+  {%- set targetTableSchema = getTableTargetSchema() | trim -%}         
+
+{#- Properties #}
+  {%- if table.viewInfo.whereClause is defined %}{%- endif %}  
+  
+{#- Drop Table #}
+  {{- addDropTable(table.target) }}
+    
+{#- Create View #}  
+{%- fetch table.target %}
+CREATE OR ALTER VIEW [{{ targetTableSchema }}].[{{table.name}}]{% br %}      
+({% br %}
+  {{- addInsertColumns(indent = "   ")}}){% br %}
+AS{% br %}
+  {%- include "nu3_sqlserver_block_select_dim" with {"indent":"  "} %}
