@@ -1,0 +1,35 @@
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- DBMS Name          : SQL Server                                                                                                                       -- #}
+{# -- Template Name      : nu3_sqlserver_ddl_table                                                                                                          -- #}
+{# -- Description        : This template creates a table based on the meta data                                                                             -- #}
+{# -- Author             : Eckhard Zemp                                                                                                                     -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- History                                                                                                                                               -- #}
+{# -- 20171204 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+
+{#- Load some utility macros #}
+  {%- import "nu3_sqlserver_utility_configuration" -%}
+  {%- import "nu3_sqlserver_utility_elements" -%}
+  {%- import "nu3_sqlserver_utility_snippets" -%}
+  {%- import "nu3_sqlserver_utility_ddl" -%}
+
+{#- Variables #}
+  {%- set templateVersion = "20171204" -%}
+
+{#- Properties #}
+
+{#- Drop Table #}
+  {{- addDropView(table.target) }}
+
+{#- Create Table #}  
+{%- fetch table.target %}
+CREATE TABLE [{%- if table.target.schema != "" -%}{{ table.target.schema }}{% else %}dbo{%- endif -%}].[{{ table.name }}]{% br %}
+({% br %}
+  {{- addCreateColumns(indent="   ") }}
+) ON {{ getTableFileGroup(table) }}
+
