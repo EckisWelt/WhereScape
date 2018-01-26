@@ -11,6 +11,13 @@
 {# -- 20171213 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
 {# --                                                                                                                                                       -- #}
 {# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- Extended Properties                                                                                                                                   -- #}
+{# -- first_start_datetime_value                                                                                                                            -- #}
+{# --   By default it is set to the value in the configuration. Set it to another                                                                           -- #}
+{# --   date if you want to override.                                                                                                                       -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
 
 {#- Select Load #}
 {{- indent }}SELECT {% br %}
