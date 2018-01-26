@@ -1,7 +1,7 @@
 {# --==============================================================================                                                                         -- #}
 {# --                                                                                                                                                       -- #}
 {# -- DBMS Name          : SQL Server                                                                                                                       -- #}
-{# -- Template Name      : nu3_sqlserver_ddl_view_dim                                                                                                           -- #}
+{# -- Template Name      : nu3_sqlserver_ddl_view_dim                                                                                                       -- #}
 {# -- Description        : This template creates a dimension view based on the meta data                                                                    -- #}
 {# -- Author             : Eckhard Zemp                                                                                                                     -- #}
 {# --                                                                                                                                                       -- #}
