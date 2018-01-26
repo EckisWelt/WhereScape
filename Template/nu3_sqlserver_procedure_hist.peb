@@ -14,6 +14,7 @@
 {# -- 20170726 | Eckhard Zemp         | Set initial dss_start_datetime to 0001-01-01                                                                        -- #}
 {# -- 20171120 | Eckhard Zemp         | Replace addSelectColumns                                                                                            -- #}
 {# -- 20171124 | Eckhard Zemp         | Separate into more layers                                                                                           -- #}
+{# -- 20180105 | Eckhard Zemp         | Check Metadata                                                                                                      -- #}
 {# --                                                                                                                                                       -- #}
 {# --==============================================================================                                                                         -- #}
 
@@ -22,10 +23,15 @@
   {%- import "nu3_sqlserver_utility_elements" -%}
   {%- import "nu3_sqlserver_utility_snippets" -%}
   {%- import "nu3_sqlserver_utility_procedure" -%}
+  {%- import "nu3_sqlserver_utility_metadata" -%}
+  {%- import "nu3_utility_metadata" -%}      
 
 {#- Variables #}
-  {%- set templateVersion = "20171120" -%}
+  {%- set templateVersion = "20180105" -%}
   {%- set sysObjectType = "TABLE" -%}
+  {%- set empty = "" -%}    
+  {%- set settingDataStoreCondense = settingDataStoreCondense() | trim %}    
+  {%- set settingDataStoreCheckMetaData = settingDataStoreCheckMetaData() | trim %}   
   {%- set hasVersionColumn = false -%}      
   {%- from table.columns as column where column.dssVersion -%}
     {%- set hasVersionColumn = true -%}     
@@ -38,6 +44,14 @@
   {{- addProcedureDocumentation(templateVersion) }}
   {{- addProcedureHeader() }}
   
+{#- Metadata #}    
+  {%- if settingDataStoreCheckMetaData == "true" -%}
+    {{- addProcedureCommentBlock(indent = "  ", commentMessage = "Metadata Check") }}      
+    {{- checkMetadata(indent = "  ") }}       
+    {{- checkMetadataSqlServer(indent = "  ") }} 
+    {% br %}        
+  {%- endif %}      
+
 {#- Set Variable for Batch processing #}    
   {{- addProcedureCommentBlock(commentMessage = "Batch Processing Variables") }}
   SET @v_step = {% counter %}00{% br %}{% br %}
@@ -62,6 +76,8 @@
   SET @v_batch_count = 0{% br %}  
   SET @v_current_datetime = {{ currentDateTimeFormula() }}{% br %}{% br %}
   BEGIN TRY{% br %}{% br %}
+  
+{#- Source #}  
     {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Source") }}
     {{- addDetailMessage(indent = "    ",message = "Load data from " + getSourceTableString(settings, length = 65)) }}        
     {% br %}  
