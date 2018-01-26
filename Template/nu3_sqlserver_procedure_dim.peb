@@ -13,6 +13,7 @@
 {# -- 20171122 | Eckhard Zemp         | Redesign                                                                                                            -- #}
 {# -- 20171122 | Eckhard Zemp         | Add Zero Key Extended Property                                                                                      -- #}
 {# -- 20171124 | Eckhard Zemp         | Separate WHERE NOT EXISTS layer                                                                                     -- #}
+{# -- 20180105 | Eckhard Zemp         | Check Metadata                                                                                                      -- #}
 {# --                                                                                                                                                       -- #}
 {# --==============================================================================                                                                         -- #}
 
@@ -21,17 +22,18 @@
   {%- import "nu3_sqlserver_utility_elements" -%}
   {%- import "nu3_sqlserver_utility_snippets" -%}
   {%- import "nu3_sqlserver_utility_procedure" -%}
+  {%- import "nu3_sqlserver_utility_metadata" -%}
+  {%- import "nu3_utility_metadata" -%}      
 
 {#- Variables #}
-  {%- set templateVersion = "20171124" -%}
+  {%- set templateVersion = "20180105" -%}
   {%- set sysObjectType = "TABLE" -%}
+  {%- set empty = "" -%}  
+  {%- set settingDimensionCondense = settingDimensionCondense() | trim %}    
+  {%- set settingDimensionCheckMetaData = settingDimensionCheckMetaData() | trim %}        
   {%- set hasArtificialColumnWithSourceTable = false -%}
   {%- from table.columns as column where column.artificial == true and column.sourceTable is defined -%}
     {%- set hasArtificialColumnWithSourceTable = true -%}
-  {%- endfrom %}
-  {%- set hasChangeHash = false %}
-  {%- from table.columns as column where column.changeHashKey -%}
-    {%- set hasChangeHash = true %}
   {%- endfrom %}
   {%- set insertZeroKey = true -%}
   {%- if table.extendedPropertyValuesByName.insert_zero_key is defined -%}
@@ -40,6 +42,10 @@
       {%- if item | trim == "false" -%}{%- set insertZeroKey = false -%}{%- endif -%}
     {%- endfor -%} 
   {%- endif -%}
+  {%- set hasChangeHash = false %}
+  {%- from table.columns as column where column.changeHashKey -%}
+    {%- set hasChangeHash = true %}
+  {%- endfrom %}  
   
 {#- Properties #}
   {%- if table.sourceJoinDetails.join is defined %}{%- endif %}
@@ -47,6 +53,16 @@
 {#- Procedure Header#}
   {{- addProcedureDocumentation(templateVersion) }}
   {{- addProcedureHeader() }}
+  
+{#- Metadata #}      
+  {%- if settingDimensionCheckMetaData == "true" -%}
+    {{- addProcedureCommentBlock(indent = "  ", commentMessage = "Metadata Check") }}      
+    {{- checkMetadata(indent = "  ") }}       
+    {{- checkMetadataSqlServer(indent = "  ") }} 
+    {% br %}      
+  {%- endif %}     
+  
+{#- Main #}       
   {{- addProcedureCommentBlock(commentMessage = "MAIN") }}
   SET @v_step = {% counter %}00{% br %}{% br %}
   SET @v_insert_count = 0{% br %}
@@ -54,8 +70,13 @@
   SET @v_current_datetime = {{ currentDateTimeFormula() }}{% br %}{% br %}
   BEGIN TRY{% br %}{% br %}
 
-{%- if insertZeroKey == true -%}
+{#- Source #}  
+    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Source") }}
+    {{- addDetailMessage(indent = "    ",message = "Load data from " + getSourceTableString(settings, length = 65)) }}
+    {% br %}  
+      
 {#- Add zero key row when lookup to this table is null #}    
+    {%- if insertZeroKey == true -%}
     {{- addProcedureCommentBlock(indent = "    ",commentMessage = "Insert Zero Key Record for lookups") }}
     SET @v_step = {% counter %}00{% br %}{% br %}  
     BEGIN TRANSACTION{% br %}{% br %}
@@ -64,10 +85,10 @@
       ({% br %}
               {{- addInsertColumnsDimZeroKey(indent = "             ") }}
       ){% br %}
-{#- Select Load #}
+  {#- Select Load #}
       SELECT *{% br %}
       FROM   ({% br %}
-{#- Select Extract #}
+  {#- Select Extract #}
         SELECT {% br %}
                {{- addSelectColumnsDimZeroKey(indent = "               ") }}      
       ) AS {{ table.name }}{% br %}   
@@ -82,7 +103,7 @@
       {{- addDetailMessage(indent = "      ",message = "Inserted : ' + CONVERT(VARCHAR,COALESCE(@v_row_count,0)) + ' rows") }}      
     END{% br %}
     {% br %}
-{%- endif -%}    
+    {%- endif -%}    
            
 {#- Update changed rows #}    
     BEGIN TRANSACTION{% br %}{% br %}
