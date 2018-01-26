@@ -1,0 +1,677 @@
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- DBMS Name          : SQL Server                                                                                                                       -- #}
+{# -- Template Name      : nu3_utility_metadata                                                                                                             -- #}
+{# -- Description        : Check platform-independent metadata issues                                                                                       -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- History                                                                                                                                               -- #}
+{# -- 20180105 | Eckhard Zemp         | Initial creation                                                                                                    -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+
+{% macro checkMetadata(indent = "  ") %}
+  {{- checkMetadataStageBusinessKey(indent) }}
+  {{- checkMetadataStageIncremental(indent) }}
+  {{- checkMetadataStageChangeHashKey(indent) }}
+  {{- checkMetadataStageChangeHashKeySource(indent) }}
+  {{- checkMetadataDataStoreBusinessKey(indent) }}
+  {{- checkMetadataDataStoreChangeHashKey(indent) }}
+  {{- checkMetadataHubHashKey(indent) }}
+  {{- checkMetadataHubBusinessKey(indent) }}
+  {{- checkMetadataHubAuxillaryColumns(indent) }}
+  {{- checkMetadataLinkHashKey(indent) }}
+  {{- checkMetadataLinkBusinessKey(indent) }}
+  {{- checkMetadataLinkAuxillaryColumns(indent) }}
+  {{- checkMetadataSatelliteHashKey(indent) }}
+  {{- checkMetadataSatelliteChangeHashKey(indent) }}
+  {{- checkMetadataDimensionBusinessKey(indent) }}
+  {{- checkMetadataDimensionArtificialKey(indent) }}
+  {{- checkMetadataDimensionZeroKeyValue(indent) }}
+  {{- checkMetadataFactBusinessKey(indent) }}
+  {{- checkMetadataHashKeyColumnsNotNull(indent) }}
+  {{- checkMetadataChangeHashKeyColumnsInStage(indent) }}
+  {{- checkMetadataChangeHashKeyColumnsInTarget(indent) }}
+  {{- checkMetadataChangeHashKeyDss(indent) }}
+  {{- checkMetadataChangeHashKeyTarget(indent) }}
+  {{- checkMetadataColumnDssLoadDate(indent) }}
+  {{- checkMetadataColumnDssRecordSource(indent) }}
+  {{- checkMetadataColumnDssSequenceNo(indent) }}
+  {{- checkMetadataColumnDssStartDate(indent) }}
+  {{- checkMetadataColumnDssEndDate(indent) }}
+  {{- checkMetadataColumnDssCreateTime(indent) }}  
+  {{- checkMetadataColumnDssUpdateTime(indent) }} 
+  {{- checkMetadataColumnNotNull(indent) }}
+  {{- checkMetadataColumnDefaultValue(indent) }}
+  {{- checkMetadataMappingDataType(indent) }}
+  {{- checkMetadataMappingColumnName(indent) }}
+{%- endmacro %}
+
+{# --==============================================================================                                                                         -- #}
+{# -- Stage                                                                                                                                                 -- #}
+{# --==============================================================================                                                                         -- #}
+
+{#- Stage with BK is a hint that duplicates will be removed -#} 
+{% macro checkMetadataStageBusinessKey(indent) %}
+  {%- set count = 0 %}
+  {%- if table.objectType == Types.ObjectType.Stage %}  
+    {%- from table.columns as column where column.businessKey %}
+      {%- set count = count + 1 %}
+    {%- endfrom %}      
+    {%- if count > 1 %}
+      {{- indent }}-- WARNING in Stage: There are BK Columns defined as 'Primary Business Key'. This means that duplicates will be removed. Leave it or remove Key Type 'A' and the associated index.{% br %}
+    {%- endif %}
+  {%- endif %}
+{%- endmacro %}
+
+{#- We should load data data incrementally -#} 
+{% macro checkMetadataStageIncremental(indent) %}
+  {%- set count = 0 %}
+  {%- if table.objectType == Types.ObjectType.Stage %}
+    {%- from table.columns as column where column.sourceColumn is defined and column.sourceTable is defined %}
+      {%- if loop.first %}
+        {%- fetch column.sourceTable %}
+        {%- if column.sourceTable.objectType is defined %}
+          {%- if column.sourceTable.objectType != table.objectType %}
+            {%- if table.sourceJoinDetails.where | trim != "" %}
+              {%- set count = count + 1 %}
+            {%- endif %}
+            {%- set targetObjectName = "" -%}        
+            {%- if table.extendedPropertyValuesByName.target_object_name is defined -%}
+              {%- set list = table.extendedPropertyValuesByName.target_object_name -%}
+              {%- for item in (list | lines) -%}
+                {%- if item | trim != "" -%}{%- set targetObjectName = item | trim -%}{%- endif %}
+              {%- endfor %} 
+            {%- endif -%}
+            {%- if targetObjectName != "" -%}
+              {%- set count = count + 1 %}
+            {%- endif %}
+            {%- if count == 0 %}
+              {{- indent }}-- WARNING in Stage: Data should be loaded incrementally. Specify the Extended Property "Target Object Name" or a WHERE Clause.{% br %}
+            {%- else %}    
+              {{- indent }}-- Stage: Data is loaded incrementally.{% br %}
+            {%- endif %}
+          {%- endif %}
+        {%- endif %}        
+      {%- endif %}        
+    {%- endfrom %}
+  {%- endif %}        
+{%- endmacro %}
+
+{#- Stage with dss_change_hash should be marked as changeHashKey -#} 
+{% macro checkMetadataStageChangeHashKey(indent) %}
+  {%- set count = 0 %}
+  {%- set dssChangeHash = dssChangeHash() | trim  %}
+  {%- if table.objectType == Types.ObjectType.Stage %}  
+    {%- from table.columns as column where column.name == dssChangeHash and column.changeHashKey == false %}
+      {%- set count = count + 1 %}
+    {%- endfrom %}      
+    {%- if count > 1 %}
+      {{- indent }}ERROR in Stage: The column '{{ dssChangeHash }}' should be marked as ChangeHashKey. Modify the Key Type to 'c'.{% br %}
+    {%- endif %}
+  {%- endif %}
+{%- endmacro %}
+
+{#- The changeHashKey in stage object shouldn't have a sourceTable or sourceColumn -#} 
+{% macro checkMetadataStageChangeHashKeySource(indent) %}
+  {%- set count = 0 %}
+  {%- set dssChangeHash = dssChangeHash() | trim  %}  
+  {%- if table.objectType == Types.ObjectType.Stage %}  
+    {%- from table.columns as column where column.name == dssChangeHash and (column.sourceTable is defined or column.sourceColumn is defined) %}
+      {%- set count = count + 1 %}
+    {%- endfrom %}      
+    {%- if count > 1 %}
+      {{- indent }}ERROR in Stage: The column '{{ dssChangeHash }}' shouldn't have any source. It is calculated at the last step before loading to the target object.{% br %}
+    {%- endif %}
+  {%- endif %}
+{%- endmacro %}
+
+{# --==============================================================================                                                                         -- #}
+{# -- DataStore                                                                                                                                             -- #}
+{# --==============================================================================                                                                         -- #}
+
+{#- DataStore needs a BK -#} 
+{% macro checkMetadataDataStoreBusinessKey(indent) %}
+  {%- set count = 0 %}
+  {%- if table.objectType == Types.ObjectType.DataStore %}  
+    {%- from table.columns as column where column.businessKey %}
+      {%- set count = count + 1 %}
+    {%- endfrom %}      
+    {%- if count == 0 %}
+      {{- indent }}ERROR in History: No Columns are defined as 'Primary Business Key'. Modify Key Type on BK Columns to 'A'.{% br %}
+    {%- else %}
+      {{- indent }}-- History: BK Columns are defined as 'Primary Business Key'.{% br %}
+    {%- endif %}
+  {%- endif %}
+{%- endmacro %}
+
+{#- DataStore needs changeHashKey #} 
+{% macro checkMetadataDataStoreChangeHashKey(indent) %}     
+  {%- set count = 0 %}
+  {%- if table.objectType == Types.ObjectType.DataStore %}    
+    {%- from table.columns as column where column.changeHashKey or column.slowlyChanging %}
+      {%- set count = count + 1 %}
+    {%- endfrom %}          
+    {%- if count == 0 %}
+      {{- indent }}ERROR in History: No ChangeHashKey Column defined. Modify Key Type for ChangeHashKey Column.{% br %}
+    {%- elseif count == 1 %}
+      {{- indent }}-- History: ChangeHashKey is defined.{% br %}
+    {%- elseif count > 1 %}
+      {{- indent }}ERROR in History: More than 1 ChangeHashKey Column defined. Remove any duplicate ChangeHashKey Marker in Key Type.{% br %}
+    {%- endif %}
+  {%- endif %}
+{%- endmacro %}  
+
+{# --==============================================================================                                                                         -- #}
+{# -- Hub                                                                                                                                                   -- #}
+{# --==============================================================================                                                                         -- #}
+    
+{#- Hub needs 1 HubHashKey #}
+{% macro checkMetadataHubHashKey(indent) %}
+  {%- set count = 0 %}
+  {%- if table.objectType == Types.ObjectType.Hub %}  
+    {%- from table.columns as column where column.hubHashKey %}
+      {%- set count = count + 1 %}
+    {%- endfrom %}      
+    {%- if count == 0 %}
+      {{- indent }}ERROR in Hub: No HubHashKey Column defined. Modify Key Type on HubHashKey Column to 'h'.{% br %}
+    {%- elseif count == 1 %}
+      {{- indent }}-- Hub: HashKey is defined.{% br %}
+    {%- elseif count > 1 %}
+      {{- indent }}ERROR in Hub: More than 1 HubHashKey Column defined. Remove duplicate HubHashKey Key Type.{% br %}
+    {%- endif %}
+  {%- endif %}
+{%- endmacro %}
+
+{#- Hub needs BK #}
+{% macro checkMetadataHubBusinessKey(indent) %}
+  {%- set count = 0 %}
+  {%- if table.objectType == Types.ObjectType.Hub %}  
+    {%- from table.columns as column where column.businessKey %}
+      {%- set count = count + 1 %}
+    {%- endfrom %}      
+    {%- if count == 0 %}
+      {{- indent }}ERROR in Hub: No Columns are defined as 'Primary Business Key'. Modify Key Type on BK Columns to 'A'.{% br %}
+    {%- else %}
+      {{- indent }}-- Hub: BK Columns are defined as 'Primary Business Key'.{% br %}
+    {%- endif %}
+  {%- endif %}
+{%- endmacro %}
+
+{#- Hub shouldn't have auxillary columns #}
+{% macro checkMetadataHubAuxillaryColumns(indent) %}
+  {%- set count = 0 %}
+  {%- if table.objectType == Types.ObjectType.Hub %}  
+    {%- from table.columns as column %}
+      {%- if not column.hubHashKey %}{%- if not column.businessKey %}{%- if not column.name contains 'dss_' %}
+        {%- set count = count + 1 %}
+      {%- endif %}{%- endif %}{%- endif %}
+    {%- endfrom %}      
+    {%- if count > 0 %}
+      {{- indent }}ERROR in Hub: There are auxillary columns with no Key Type.{% br %}
+    {%- endif %}
+  {%- endif %}
+{%- endmacro %}
+
+{# --==============================================================================                                                                         -- #}
+{# -- Link                                                                                                                                                  -- #}
+{# --==============================================================================                                                                         -- #}
+  
+{#- Link needs 1 LinkHashKey #}
+{% macro checkMetadataLinkHashKey(indent) %}
+  {%- set count = 0 %}
+  {%- if table.objectType == Types.ObjectType.Link %}  
+    {%- from table.columns as column where column.linkHashKey %}
+      {%- set count = count + 1 %}
+    {%- endfrom %}      
+    {%- if count == 0 %}
+      {{- indent }}ERROR in Link: No LinkHashKey Column defined. Modify Key Type on LinkHashKey.{% br %}
+    {%- elseif count == 1 %}
+      {{- indent }}-- Link: HashKey is defined.{% br %}
+    {%- elseif count > 1 %}
+      {{- indent }}ERROR in Link: More than 1 LinkHashKey Column defined. Remove duplicate LinkHashKey Key Type.{% br %}
+    {%- endif %}
+  {%- endif %}  
+{%- endmacro %}
+
+{#- Link needs BK (either h or A) #}
+{#- Either only h exists. Or if there are auxiliary columns they should be of Type A. And if there is 1 column of Type A, all should be A #}
+{% macro checkMetadataLinkBusinessKey(indent) %}
+  {%- set hubColumnCount = 0 %}
+  {%- set bkColumnCount = 0 %}  
+  {%- if table.objectType == Types.ObjectType.Link %}  
+    {%- from table.columns as column %}
+      {%- if column.hubHashKey %}
+        {%- set hubColumnCount = hubColumnCount + 1 %}
+      {%- endif %}
+      {%- if column.businessKey %}
+        {%- set bkColumnCount  = bkColumnCount + 1 %}
+      {%- endif %}       
+    {%- endfrom %}      
+    {%- if hubColumnCount == 0 %}
+      {%- if bkColumnCount == 0 %}
+        {{- indent }}ERROR in Link: No HubHashKey or BK columns are defined. Modify Key Type to 'h' or 'A'.{% br %}
+      {%- else %}
+        {{- indent }}-- Link: BK Columns are defined as 'Primary Business Key'.{% br %}
+      {%- endif %}
+    {%- else %}
+      {%- if bkColumnCount == 0 %}
+        {{- indent }}-- Link: BK Columns are defined as 'Hub Hash Keys'.{% br %}
+      {%- else %}
+        {{- indent }}ERROR in Link: There are both Key Types ('Hub Hash Key' and 'Primary Business Key') defined. Define BK columns only as 'h' or 'A'.{% br %}
+      {%- endif %}
+    {%- endif %}
+  {%- endif %}
+{%- endmacro %}
+
+{#- Link shouldn't have auxillary columns #}
+{% macro checkMetadataLinkAuxillaryColumns(indent) %}
+  {%- set count = 0 %}
+  {%- if table.objectType == Types.ObjectType.Link %}  
+    {%- from table.columns as column %}
+      {%- if not column.linkHashKey %}{%- if not column.hubHashKey %}{%- if not column.businessKey %}{%- if not column.name contains 'dss_' %}
+        {%- set count = count + 1 %}
+      {%- endif %}{%- endif %}{%- endif %}{%- endif %}
+    {%- endfrom %}      
+    {%- if count > 0 %}
+      {{- indent }}ERROR in Link: There are auxillary columns with no Key Type.{% br %}
+    {%- endif %}
+  {%- endif %}
+{%- endmacro %}
+
+{# --==============================================================================                                                                         -- #}
+{# -- Satellite                                                                                                                                             -- #}
+{# --==============================================================================                                                                         -- #}
+
+{#- Satellite needs 1 HubHashKey or 1 LinkHashKey #}  
+{% macro checkMetadataSatelliteHashKey(indent) %}
+  {%- set count = 0 %}
+  {%- if table.objectType == Types.ObjectType.Satellite %}    
+    {%- from table.columns as column where column.hubHashKey or column.linkHashKey %}
+      {%- set count = count + 1 %}
+    {%- endfrom %}      
+    {%- if count == 0 %}
+      {{- indent }}ERROR in Satellite: No HashKey Column defined. Define a 'Hub Hash Key' or 'Link Hash Key' in Key Type.{% br %}
+    {%- elseif count == 1 %}
+      {{- indent }}-- Satellite: HubHashKey or LinkHashKey is defined.{% br %}
+    {%- elseif count > 1 %}
+      {{- indent }}ERROR in Satellite: More than 1 HashKey Column defined. Remove any duplicate HashKey in Key Type.{% br %}
+    {%- endif %}
+  {%- endif %}
+{%- endmacro %}  
+      
+{#- Satellite needs changeHashKey #} 
+{% macro checkMetadataSatelliteChangeHashKey(indent) %}     
+  {%- set count = 0 %}
+  {%- if table.objectType == Types.ObjectType.Satellite %}    
+    {%- from table.columns as column where column.changeHashKey %}
+      {%- set count = count + 1 %}
+    {%- endfrom %}          
+    {%- if count == 0 %}
+      {{- indent }}ERROR in Satellite: No ChangeHashKey Column defined. Modify Key Type for ChangeHashKey Column.{% br %}
+    {%- elseif count == 1 %}
+      {{- indent }}-- Satellite: ChangeHashKey is defined.{% br %}
+    {%- elseif count > 1 %}
+      {{- indent }}ERROR in Satellite: More than 1 ChangeHashKey Column defined. Remove any duplicate ChangeHashKey Marker in Key Type.{% br %}
+    {%- endif %}
+  {%- endif %}
+{%- endmacro %}  
+
+{# --==============================================================================                                                                         -- #}
+{# -- Dimensions                                                                                                                                            -- #}
+{# --==============================================================================                                                                         -- #}
+
+{#- Dimension needs a BK -#} 
+{% macro checkMetadataDimensionBusinessKey(indent) %}
+  {%- set count = 0 %}
+  {%- if table.objectType == Types.ObjectType.Dimension %}  
+    {%- from table.columns as column where column.businessKey %}
+      {%- set count = count + 1 %}
+    {%- endfrom %}      
+    {%- if count == 0 %}
+      {{- indent }}ERROR in Dimension: No Columns are defined as 'Primary Business Key'. Modify Key Type on BK Columns to 'A'.{% br %}
+    {%- else %}
+      {{- indent }}-- Dimension: BK Columns are defined as 'Primary Business Key'.{% br %}
+    {%- endif %}
+  {%- endif %}
+{%- endmacro %}
+
+{#- Dimension needs a Surrogate Key (only table) -#}
+{% macro checkMetadataDimensionArtificialKey(indent) %}
+  {%- set count = 0 %}
+  {%- if table.objectType == Types.ObjectType.Dimension %}  
+    {%- from table.columns as column where column.artificial %}
+      {%- set count = count + 1 %}
+    {%- endfrom %}      
+    {%- if count == 0 %}
+      {{- indent }}ERROR in Dimension: No Columns is defined as 'Artificial Key'. Modify Key Type of the surrogate key to '0' and tick the column 'Artificial Key'.{% br %}
+    {%- else %}
+      {{- indent }}-- Dimension: Artificial Key Column is defined.{% br %}
+    {%- endif %}
+  {%- endif %}
+{%- endmacro %}
+
+{#- Dimension columns need Zero Key Value -#} 
+{% macro checkMetadataDimensionZeroKeyValue(indent) %}
+  {%- set count = 0 %}
+  {%- if table.objectType == Types.ObjectType.Dimension %}  
+    {%- from table.columns as column where column.nullAllowed == true %}
+      {%- if column.zeroKeyValue | trim == "" %}
+        {{- indent }}ERROR in Dimension: Column '{{ column.name }}' has no Zero Key Value defined. Define Zero Key Value on that column.{% br %}
+      {%- endif %}
+    {%- endfrom %}      
+  {%- endif %}
+{%- endmacro %}
+
+{# --==============================================================================                                                                         -- #}
+{# -- Facts                                                                                                                                                 -- #}
+{# --==============================================================================                                                                         -- #}
+
+{#- Fact needs a BK -#} 
+{% macro checkMetadataFactBusinessKey(indent) %}
+  {%- set count = 0 %}
+  {%- if table.objectType == Types.ObjectType.Fact %}  
+    {%- from table.columns as column where column.businessKey %}
+      {%- set count = count + 1 %}
+    {%- endfrom %}      
+    {%- if count == 0 %}
+      {{- indent }}ERROR in Fact: No Columns are defined as 'Primary Business Key'. Modify Key Type on BK Columns to 'A'.{% br %}
+    {%- else %}
+      {{- indent }}-- Fact: BK Columns are defined as 'Primary Business Key'.{% br %}
+    {%- endif %}
+  {%- endif %}
+{%- endmacro %}
+
+{# --==============================================================================                                                                         -- #}
+{# -- HashKeys                                                                                                                                              -- #}
+{# --==============================================================================                                                                         -- #}
+
+{#- Columns which are used in a HubHashKey or LinkHashKey can't be NULL #}  
+{% macro checkMetadataHashKeyColumnsNotNull(indent) %}   
+  {%- set count = 0 %}
+  {%- from table.columns as column where column.hubHashKey or column.linkHashKey %}
+    {%- for hashKeySourceColumn in column.hashKeySources %}
+      {%- if hashKeySourceColumn.nullAllowed == true %}
+        {{- indent }}ERROR in HashKeys: Column '{{ hashKeySourceColumn.name }}' is used in HashKey '{{ column.name }}'. Change the column property of NULL to false.{% br %}
+      {%- endif %}
+    {%- endfor %}
+  {%- endfrom %} 
+{%- endmacro %}  
+
+{#- If HashKeys exists in a stage table, verify that all columns are hashed #}  
+{% macro checkMetadataChangeHashKeyColumnsInStage(indent) %}
+  {%- set count = 0 %}
+  {%- set errorCount = 0 %}  
+  {%- set columnPrefixDimension = columnPrefixDimension() | trim %}
+  {%- set columnPrefixHub = columnPrefixHub() | trim %}
+  {%- set columnPrefixLink= columnPrefixLink() | trim %}      
+  {%- if table.objectType == Types.ObjectType.Stage %} 
+    {%- from table.columns as column where column.changeHashKey %}    
+      {%- set count = count + 1 %}    
+    {%- endfrom %}
+    {%- if count == 1 %}
+      {%- from table.columns as column where not column.hubHashKey or not column.linkHashKey or not column.changeHashKey %}
+        {%- if not column.name contains "dss_" %}{%- if not column.name contains "dummy_" %}{%- if not column.name contains columnPrefixDimension %}{%- if not column.name contains columnPrefixHub %}{%- if not column.name contains columnPrefixLink %}
+          {%- set verifyCount = 0 %}                
+          {%- from table.columns as hashColumn where hashColumn.changeHashKey or hashColumn.hubHashKey or hashColumn.linkHashKey %}
+            {%- for hashKeySourceColumn in hashColumn.hashKeySources %}
+              {%- if column.name == hashKeySourceColumn.name %}
+                {%- set verifyCount = verifyCount + 1 %}
+              {%- endif %}
+            {%- endfor %}
+          {%- endfrom %}   
+          {%- if verifyCount == 0 %}
+            {%- set errorCount = errorCount + 1 %}          
+            {{- indent }}ERROR in HashKeys: Column '{{ column.name }}' is not available in any HashKey. Add it or if it is not used anymore, define another stage step before this one.{% br %}
+          {%- endif %}{%- endif %}{%- endif %}{%- endif %}{%- endif %}
+        {%- endif %}
+      {%- endfrom %}
+      {%- if errorCount == 0 %}
+        {{- indent }}-- HashKeys: All columns are hashed.{% br %}
+      {%- endif %}
+    {%- elseif count > 1 %}
+      {{- indent }}-- WARNING in HashKeys: There are more than 1 ChangeHashKey defined.{% br %}
+    {%- endif %}      
+  {%- endif %}
+{%- endmacro %}
+
+{#- If a changeHashKey exists in a target table, verify that all hashed columns exists in the target table #}
+{% macro checkMetadataChangeHashKeyColumnsInTarget(indent) %}  
+  {%- set count = 0 %}
+  {%- set errorCount = 0 %}
+  {%- if table.objectType != Types.ObjectType.Stage %}    
+    {%- from table.columns as column %}
+      {%- if column.changeHashKey %}
+        {%- set count = count + 1 %}
+      {%- endif %}
+    {%- endfrom %} 
+    {%- if count == 1 %}
+      {%- from table.columns as column where column.changeHashKey %}
+        {%- fetch column.sourceColumn %}
+        {%- from column.sourceColumn.hashKeySources as hashKeySourceColumn %}
+          {%- set verifyCount = 0 %}
+          {%- from table.columns as verifyColumn where verifyColumn.sourceColumn is defined and verifyColumn.sourceTable is defined %}
+            {%- fetch verifyColumn.sourceColumn -%}
+            {%- if verifyColumn.sourceColumn.name == hashKeySourceColumn.name -%}
+              {%- set verifyCount = verifyCount + 1 %}
+            {%- endif %}
+          {%- endfrom %}
+          {%- if verifyCount == 0 %}
+            {%- set errorCount = errorCount + 1 %}
+            {{- indent }}ERROR in ChangeHashKey: Hashed Column '{{ hashKeySourceColumn.name }}' doesn't exist. Add the column from stage.{% br %}
+          {%- endif %}
+        {%- endfrom %}
+      {%- endfrom %} 
+      {%- if errorCount == 0 %}
+        {{- indent }}-- ChangeHashKey: All hashed columns exists in table.{% br %}
+      {%- endif %}
+    {%- elseif count > 1 %}
+      {{- indent }}ERROR in ChangeHashKey: More than 1 ChangeHashKey Column defined. Remove any duplicate ChangeHashKey Marker in Key Type.{% br %}
+    {%- endif %}        
+  {%- endif %}
+{% endmacro %}
+
+{#- In the hashing function in stage there shouldn't be any dss columns #}  
+{% macro checkMetadataChangeHashKeyDss(indent) %}
+  {%- set count = 0 %}
+  {%- set errorCount = 0 %}  
+  {%- if table.objectType == Types.ObjectType.Stage %} 
+    {%- from table.columns as column where column.changeHashKey %}    
+      {%- for hashKeySourceColumn in column.hashKeySources %}
+        {%- if hashKeySourceColumn.name contains "dss_" %}
+          {{- indent }}ERROR in HashKeys: Column '{{ column.name }}' is a system column. It should be not hashed.{% br %}
+        {%- endif %}
+      {%- endfor %}    
+    {%- endfrom %}
+  {%- endif %}
+{%- endmacro %}
+
+{#- If the ChangeHashKey is used in any target object, it must be set as changeHashKey #}  
+{% macro checkMetadataChangeHashKeyTarget(indent) %}
+  {%- set count = 0 %}
+  {%- set dssChangeHash = dssChangeHash() | trim  %}
+  {%- if table.objectType != Types.ObjectType.Stage %}{%- if table.objectType != Types.ObjectType.View %}{%- if table.objectType != Types.ObjectType.Load %} 
+    {%- from table.columns as column where column.name == dssChangeHash %}    
+      {%- if column.changeHashKey == false %}
+        {{- indent }}ERROR in ChangeHashKeys: Column '{{ column.name }}' is the ChangeHashKey. Set it in Key Type as 'c'.{% br %}
+      {%- endif %}
+    {%- endfrom %}
+  {%- endif %}{%- endif %}{%- endif %}
+{%- endmacro %}
+
+{# --==============================================================================                                                                         -- #}
+{# -- Columns                                                                                                                                               -- #}
+{# --==============================================================================                                                                         -- #}
+        
+{#- Objects need dssLoadDate -#} 
+{% macro checkMetadataColumnDssLoadDate(indent) %}   
+  {%- set count = 0 %}
+  {%- set columnCheck  = dssLoadDate() | trim %}  
+  {%- if table.objectType == Types.ObjectType.DataStore or table.objectType == Types.ObjectType.Satellite or table.objectType == Types.ObjectType.Link or table.objectType == Types.ObjectType.Hub or table.objectType == Types.ObjectType.Dimension or table.objectType == Types.ObjectType.Fact %}    
+    {%- from table.columns as column where column.name == columnCheck %}
+      {%- set count = count + 1 %}
+    {%- endfrom %}          
+    {%- if count == 0 %}
+      {{- indent }}ERROR in Columns: Column '{{ columnCheck }}' is missing. Add it.{% br %}
+    {%- else %}
+      {{- indent }}-- Columns: '{{ columnCheck }}' is defined.{% br %}
+    {%- endif %}
+  {%- endif %}  
+{%- endmacro %}  
+
+{#- Objects need dssRecordSource -#} 
+{% macro checkMetadataColumnDssRecordSource(indent) %}      
+  {%- set count = 0 %}
+  {%- set columnCheck = dssRecordSource() | trim %}  
+  {%- if table.objectType == Types.ObjectType.DataStore or table.objectType == Types.ObjectType.Satellite or table.objectType == Types.ObjectType.Link or table.objectType == Types.ObjectType.Hub %}    
+    {%- from table.columns as column where column.name == columnCheck %}
+      {%- set count = count + 1 %}
+    {%- endfrom %}          
+    {%- if count == 0 %}
+      {{- indent }}ERROR in Columns: Column '{{ columnCheck }}' is missing. Add it.{% br %}
+    {%- else %}
+      {{- indent }}-- Columns: '{{ columnCheck }}' is defined.{% br %}
+    {%- endif %}
+  {%- endif %}  
+{%- endmacro %}  
+  
+{#- Objects need dssSequenceNo -#} 
+{% macro checkMetadataColumnDssSequenceNo(indent) %}     
+  {%- set count = 0 %}
+  {%- set columnCheck = dssSequenceNo() | trim %}  
+  {%- if table.objectType == Types.ObjectType.DataStore %}    
+    {%- if not table.name contains '_rt' %}
+      {%- from table.columns as column where column.name == columnCheck %}
+        {%- set count = count + 1 %}
+      {%- endfrom %}          
+      {%- if count == 0 %}
+        {{- indent }}ERROR in Columns: Column '{{ columnCheck }}' is missing. Add it.{% br %}
+      {%- else %}
+        {{- indent }}-- Columns: '{{ columnCheck }}' is defined.{% br %}
+      {%- endif %}
+    {%- endif %}
+  {%- endif %}  
+{%- endmacro %}  
+
+{#- Objects need dssStartDate -#}    
+{% macro checkMetadataColumnDssStartDate(indent) %} 
+  {%- set count = 0 %}
+  {%- set columnCheck = dssStartDate() | trim %}  
+  {%- if table.objectType == Types.ObjectType.DataStore or table.objectType == Types.ObjectType.Satellite %}    
+    {%- from table.columns as column where column.name == columnCheck %}
+      {%- set count = count + 1 %}
+    {%- endfrom %}          
+    {%- if count == 0 %}
+      {{- indent }}ERROR in Columns: Column '{{ columnCheck }}' is missing. Add it.{% br %}
+    {%- else %}
+      {{- indent }}-- Columns: '{{ columnCheck }}' is defined.{% br %}
+    {%- endif %}
+  {%- endif %}  
+{%- endmacro %}  
+
+{#- Objects need dssEndDate -#}    
+{% macro checkMetadataColumnDssEndDate(indent) %} 
+  {%- set count = 0 %}
+  {%- set columnCheck = dssEndDate() | trim %}  
+  {%- if table.objectType == Types.ObjectType.DataStore %}    
+    {%- from table.columns as column where column.name == columnCheck %}
+      {%- set count = count + 1 %}
+    {%- endfrom %}          
+    {%- if count == 0 %}
+      {{- indent }}ERROR in Columns: Column '{{ columnCheck }}' is missing. Add it.{% br %}
+    {%- else %}
+      {{- indent }}-- Columns: '{{ columnCheck }}' is defined.{% br %}
+    {%- endif %}
+  {%- endif %}  
+{%- endmacro %}
+
+{#- Objects need dssCreateTime -#} 
+{% macro checkMetadataColumnDssCreateTime(indent) %}   
+  {%- set count = 0 %}
+  {%- set columnCheck  = dssCreateTime() | trim %}  
+  {%- if table.objectType == Types.ObjectType.DataStore or table.objectType == Types.ObjectType.Satellite or table.objectType == Types.ObjectType.Link or table.objectType == Types.ObjectType.Hub or table.objectType == Types.ObjectType.Dimension or table.objectType == Types.ObjectType.Fact %}    
+    {%- from table.columns as column where column.name == columnCheck %}
+      {%- set count = count + 1 %}
+    {%- endfrom %}          
+    {%- if count == 0 %}
+      {{- indent }}ERROR in Columns: Column '{{ columnCheck }}' is missing. Add it.{% br %}
+    {%- else %}
+      {{- indent }}-- Columns: '{{ columnCheck }}' is defined.{% br %}
+    {%- endif %}
+  {%- endif %}  
+{%- endmacro %}  
+
+{#- Objects need dssUpdateTime -#} 
+{% macro checkMetadataColumnDssUpdateTime(indent) %}   
+  {%- set count = 0 %}
+  {%- set columnCheck  = dssUpdateTime() | trim %}  
+  {%- if table.objectType == Types.ObjectType.DataStore or table.objectType == Types.ObjectType.Dimension %}    
+    {%- from table.columns as column where column.name == columnCheck %}
+      {%- set count = count + 1 %}
+    {%- endfrom %}            
+    {%- if count == 0 %}
+      {{- indent }}ERROR in Columns: Column '{{ columnCheck }}' is missing. Add it.{% br %}
+    {%- else %}
+      {{- indent }}-- Columns: '{{ columnCheck }}' is defined.{% br %}
+    {%- endif %}
+  {%- endif %}  
+  {%- if table.objectType == Types.ObjectType.Stage or table.objectType == Types.ObjectType.Satellite %}    
+    {%- from table.columns as column where column.name == columnCheck %}
+      {%- set count = count + 1 %}
+    {%- endfrom %}              
+    {%- if count > 0 %}
+      {{- indent }}ERROR in Columns: No need to define column '{{ columnCheck }}'. We never update this object. Delete the column.{% br %}
+    {%- endif %}
+  {%- endif %}    
+{%- endmacro %}  
+
+{% macro checkMetadataColumnNotNull(indent) %}   
+  {%- set count = 0 %}
+  {%- from table.columns as column where column.artificial or column.businessKey or column.hubHashKey or column.linkHashKey or column.changeHashKey or column.name contains 'dss_' %}
+    {%- if column.nullAllowed == true %}
+      {{- indent }}ERROR in Columns: NULL values for Column '{{ column.name }}' are not allowed. Change the column property of NULL to false.{% br %}
+    {%- endif %}
+  {%- endfrom %}              
+{%- endmacro %}  
+
+{% macro checkMetadataColumnDefaultValue(indent) %}   
+  {%- set count = 0 %}
+  {%- from table.columns as column %}
+    {%- if not column.name contains 'dss_' %}
+      {%- if column.defaultValue | trim != "" %}
+        {{- indent }}ERROR in Columns: Column '{{ column.name }}' has a default value. Modify the column and remove the default value and define it as a transformation.{% br %}
+      {%- endif %}
+    {%- endif %}
+  {%- endfrom %}              
+{%- endmacro %}  
+
+{# --==============================================================================                                                                         -- #}
+{# -- Mapping                                                                                                                                               -- #}
+{# --==============================================================================                                                                         -- #}
+
+{#- Verify data type from stage with target object -#}
+{% macro checkMetadataMappingDataType(indent) %}   
+  {%- set count = 0 %}
+  {%- if table.objectType != Types.ObjectType.Stage %}    
+    {%- from table.columns as column where column.sourceColumn is defined and column.SourceTable is defined %}
+      {%- fetch column.sourceColumn %}
+      {%- if column.fullDataType.replace("identity(1,1)","") | upper | trim != column.sourceColumn.fullDataType.replace("identity(1,1)","") | upper | trim %}
+        {{- indent }}ERROR in Mapping: Data Type in column '{{ column.name }}' doesn't match with source column.{% br %}
+      {%- endif %}
+    {%- endfrom %}
+  {%- endif %}  
+{%- endmacro %}  
+
+{#- Verify column name from stage with target object (very hard rule, maybe remove) -#}
+{% macro checkMetadataMappingColumnName(indent) %}   
+  {%- set count = 0 %}
+  {%- if table.objectType != Types.ObjectType.Stage %}    
+    {%- from table.columns as column where column.sourceColumn is defined and column.SourceTable is defined %}
+      {%- fetch column.sourceColumn %}
+      {%- if column.name != column.sourceColumn.name %}
+        {{- indent }}ERROR in Mapping: Column name '{{ column.name }}' doesn't match with source column.{% br %}
+      {%- endif %}
+    {%- endfrom %}
+  {%- endif %}  
+{%- endmacro %}  
