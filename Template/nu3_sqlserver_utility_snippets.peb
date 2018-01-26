@@ -122,21 +122,29 @@
 
 {% macro getSourceTableString(settings , length = 80) %}
   {%- set string = "" -%}
-  {%- fetch settings.sourceTablesByName %}  
-  {%- from settings.sourceTablesByName as src %}
-    {%- if not loop.first%}{%- set string = string + "," %}{% endif %}{%- set string = string + src.key -%}
-  {%- endfrom -%}
+  {%- if settings.sourceTablesByName is defined %}
+    {%- fetch settings.sourceTablesByName %}  
+    {%- from settings.sourceTablesByName as src %}
+      {%- if not loop.first%}{%- set string = string + "," %}{% endif %}{%- set string = string + src.key -%}
+    {%- endfrom -%}
+  {%- else %}
+    ERROR: No sourceTablesByName found
+  {%- endif %}
   {{- string | abbreviate(length) -}}
 {% endmacro %}
 
 {% macro getFirstSourceTable(settings) %}
   {%- set empty = "" %}
-  {%- fetch settings.sourceTablesByName %}  
-  {%- from settings.sourceTablesByName as src %}
-    {%- if loop.first %}
-      {{- empty }}{{ src.key }}
-    {%- endif %}
-  {%- endfrom %}
+  {%- if settings.sourceTablesByName is defined %}
+    {%- fetch settings.sourceTablesByName %}  
+    {%- from settings.sourceTablesByName as src %}
+      {%- if loop.first %}
+        {{- empty }}{{ src.key }}
+      {%- endif %}
+    {%- endfrom %}
+  {%- else %}
+    ERROR: No sourceTablesByName found
+  {%- endif %}  
 {% endmacro %}
 
 {% macro getSourceTableDssLoadDate() %}
@@ -187,5 +195,13 @@
     NULL
   {%- else -%}
     Missing NULL information
+  {%- endif -%}
+{% endmacro %}
+
+{% macro getTableTargetSchema() %}
+  {%- if table.target.schema != "" -%}
+    {{ table.target.schema }}
+  {%- else -%}
+    dbo
   {%- endif -%}
 {% endmacro %}
