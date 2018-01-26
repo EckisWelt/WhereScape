@@ -1,0 +1,206 @@
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- DBMS Name          : SQL Server                                                                                                                       -- #}
+{# -- Template Name      : nu3_sqlserver_utility_metadata                                                                                                   -- #}
+{# -- Description        : Check metadata for sqlserver specific issues only                                                                                -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- History                                                                                                                                               -- #}
+{# -- 20180105 | Eckhard Zemp         | Initial creation                                                                                                    -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+
+{% macro checkMetadataSqlServer(indent = "  ") %}
+  {{- checkMetadataDataTypeDatetime(indent) }}
+  {{- checkMetadataDataTypeNumeric(indent) }}
+  {{- checkMetadataDataTypeInteger(indent) }}
+  {{- checkMetadataDataTypeHash(indent) }}
+  {{- checkMetadataIndexCCI(indent) }}
+  {{- checkMetadataIndexPK(indent) }}
+  {{- checkMetadataIndexA(indent) }}  
+  {{- checkMetadataIndexStage(indent) }}
+  {{- checkMetadataIndexStageDrop(indent) }}
+  {{- checkMetadataIndexClustered(indent) }}
+  {{- checkMetadataIndexNameContainsTableName(indent) }} 
+{% endmacro %}
+
+{# --==============================================================================                                                                         -- #}
+{# -- Data Type                                                                                                                                             -- #}
+{# --==============================================================================                                                                         -- #}
+
+{#- All system columns of datatype 'datetime' should be checked for the default datatype #}
+{% macro checkMetadataDataTypeDatetime(indent) %}
+  {%- set dssDateTimeDataType = dssDateTimeDataType() | trim %}  
+  {%- from table.columns as column where column.name contains 'dss_' and column.dataType contains 'datetime' %}
+    {%- if column.fullDataType | upper == dssDateTimeDataType | upper %}
+      {{- indent }}-- Columns: '{{ column.name }}' has right data type.{% br %}
+    {%- else %}
+      {{- indent }}ERROR in Columns: Column '{{ column.name }}' has wrong data type. Modify it to '{{ dssDateTimeDataType }}'.{% br %}
+    {%- endif %}
+  {%- endfrom %}
+{%- endmacro %}
+
+{#- All columns of datatype 'numeric' should be modified to 'decimal' (soft rule for consistency) #}
+{% macro checkMetadataDataTypeNumeric(indent) %}
+  {%- from table.columns as column %}
+    {%- if column.fullDataType == 'numeric' %}
+      {{- indent }}ERROR in Columns: Column '{{ column.name }}' has data type 'numeric'. Modify it to 'decimal'. This is our default data type.{% br %}
+    {%- endif %}
+  {%- endfrom %}
+{%- endmacro %}
+
+{#- All columns of datatype 'integer' should be modified to 'int' #}
+{% macro checkMetadataDataTypeInteger(indent) %}
+  {%- from table.columns as column %}
+    {%- if column.fullDataType == 'integer' %}
+      {{- indent }}ERROR in Columns: Column '{{ column.name }}' has data type 'integer'. Modify it to 'int'.{% br %}
+    {%- endif %}
+  {%- endfrom %}
+{%- endmacro %}
+
+{#- Hash columns should be of data type 'binary' #}
+{% macro checkMetadataDataTypeHash(indent) %}
+  {%- set hashDataType = hashDataType() | trim %}  
+  {%- from table.columns as column where column.changeHashKey or column.hubHashKey or column.linkHashKey %}
+    {%- if column.fullDataType | upper == hashDataType | upper %}
+      {{- indent }}-- Columns: '{{ column.name }}' has right data type.{% br %}
+    {%- else %}
+      {{- indent }}ERROR in Columns: Column '{{ column.name }}' has wrong data type. Modify it to '{{ hashDataType }}'.{% br %}
+    {%- endif %}
+  {%- endfrom %}
+{%- endmacro %}
+
+{# --==============================================================================                                                                         -- #}
+{# -- Index                                                                                                                                                 -- #}
+{# --==============================================================================                                                                         -- #}
+
+{#- History, Sat, Link, Hub, Dim and Fact should have a CCI Index -#} 
+{% macro checkMetadataIndexCCI(indent) %} 
+  {%- set count = 0 %}  
+  {%- if table.objectType == Types.ObjectType.DataStore or table.objectType == Types.ObjectType.Satellite or table.objectType == Types.ObjectType.Link or table.objectType == Types.ObjectType.Hub or table.objectType == Types.ObjectType.Dimension or table.objectType == Types.ObjectType.Fact %}      
+    {%- from table.columns as column where column.fullDataType | upper == 'NVARCHAR(MAX)' %}
+      {%- set count = count + 1 %}
+    {%- endfrom %}
+    {%- if count == 0 %}
+      {%- set count = 0 %}            
+      {%- from table.indexes as ind where ind.indexType == Types.IndexType.ClusteredColumnstore %}
+        {%- set count = count + 1 %}
+      {%- endfrom %}          
+      {%- if count == 0 %}
+        {{- indent }}ERROR in Indexes: Clustered Columnstore Index is missing. Add an Index 'CCI' of type Clustered Columnstore Index.{% br %}
+      {%- elseif count > 0 %}
+        {{- indent }}-- Indexes: Clustered Columnstore Index is defined.{% br %}        
+      {%- endif %}
+    {%- endif %}
+  {%- endif %} 
+{%- endmacro %} 
+
+{#- Sat, Link, Hub should have a PK Index of Type 'PK'. Could still be not active, but the meta data is there for manual checks if needed. -#} 
+{% macro checkMetadataIndexPK(indent) %} 
+  {%- set count = 0 %}
+  {%- set indexName = table.name + '_idx_PK' %}
+  {%- if table.objectType == Types.ObjectType.Satellite or table.objectType == Types.ObjectType.Link or table.objectType == Types.ObjectType.Hub %}        
+    {%- from table.indexes as ind %}
+      {%- if ind.name contains indexName %}
+        {%- set count = count + 1 %}
+      {%- endif %}
+    {%- endfrom %}
+    {%- if count == 0 %}        
+      {{- indent }}-- WARNING in Indexes: Index name '{{ indexName }}' doesn't exist. Please add an index for the Primary Key Constrain. Could still be set as not active.{% br %}
+    {%- else %}    
+     {{- indent }}-- Indexes: Index name '{{ indexName }}' for Primary Key constrain exists.{% br %}
+    {%- endif %}
+  {%- endif %}
+{%- endmacro %}
+
+{#- History, Link, Hub, Dim and Fact should have a BK Index of Type 'A'. Could still be not active, but the meta data is there for manual checks if needed. -#} 
+{% macro checkMetadataIndexA(indent) %} 
+  {%- set count = 0 %}
+  {%- set indexName = table.name + '_idx_A' %}
+  {%- if table.objectType == Types.ObjectType.DataStore or table.objectType == Types.ObjectType.Link or table.objectType == Types.ObjectType.Hub or table.objectType == Types.ObjectType.Dimension or table.objectType == Types.ObjectType.Fact %}        
+    {%- from table.indexes as ind %}
+      {%- if ind.name contains indexName %}
+        {%- set count = count + 1 %}
+      {%- endif %}
+    {%- endfrom %}
+    {%- if count == 0 %}        
+      {{- indent }}-- WARNING in Indexes: Index name '{{ indexName }}' doesn't exist. Please add an index for the Business Key Constrain and tick 'Business Key' and 'Unique' and list all business key columns{% br %}
+    {%- else %}    
+      {{- indent }}-- Indexes: Index name '{{ indexName }}' for Primary Key constrain exists.{% br %}
+    {%- endif %}
+  {%- endif %}
+{%- endmacro %}
+
+{#- Throw warning if there are Clustered Indexes -#}
+{% macro checkMetadataIndexClustered(indent) %}
+  {%- if table.objectType == Types.ObjectType.Dimension %}      
+    {%- from table.indexes as ind %}
+      {%- if ind.indexType == Types.IndexType.Clustered %}    
+          {{- indent }}ERROR in Indexes: Index '{{ ind.name }}' shouldn't be clustered. Modify it as a 'Nonclustered Index'.{% br %}
+      {%- endif %}
+    {%- endfrom %}          
+  {%- endif %} 
+{%- endmacro %}  
+
+{#- Throw warning if there are Stage Indexes -#}
+{% macro checkMetadataIndexStage(indent) %}
+  {%- if table.objectType == Types.ObjectType.Stage %}      
+    {%- from table.indexes as ind %}
+      {%- if ind.indexType != Types.IndexType.ClusteredColumnstore %}    
+        {%- if not ind.name contains '_LDT' %}
+          {{- indent }}-- WARNING in Indexes: Index '{{ ind.name }}' is defined. Verify that you need it.{% br %}
+        {%- endif %}
+      {%- endif %}
+    {%- endfrom %}          
+  {%- endif %} 
+{%- endmacro %}  
+  
+{#- Stage Indexes should be dropped before Insert -#}
+{% macro checkMetadataIndexStageDrop(indent) %}
+  {%- if table.objectType == Types.ObjectType.Stage %}      
+    {%- from table.indexes as ind %}
+      {%- if ind.indexType != Types.IndexType.ClusteredColumnstore %}    
+        {%- if ind.dropBeforeUpdate == true %}
+          {{- indent }}-- Indexes: Index '{{ ind.name }}' has feature 'Drop Index before Table Update' enabled.{% br %}
+        {%- else %}
+          {{- indent }}ERROR in Indexes: Index '{{ ind.name }}' should have the feature 'Drop Index before Table Update' enabled.{% br %}
+        {%- endif %}
+      {%- endif %}
+    {%- endfrom %}          
+  {%- endif %} 
+{%- endmacro %}
+
+{#- Table names should exist in index names. If tables are renamed, indexes are duplicated -#}    
+{% macro checkMetadataIndexNameContainsTableName(indent) %}
+  {%- set indexPrefix = table.name + '_idx_' %}
+  {%- from table.indexes as ind %}
+    {%- if ind.name contains indexPrefix %}
+      {{- indent }}-- Indexes: Index name '{{ ind.name }}' matches table name.{% br %}
+    {%- else %}
+      {{- indent }}ERROR in Indexes: Index name '{{ ind.name }}' doesn't match table name. Remove duplicate indexes or rename object.{% br %}
+    {%- endif %}
+  {%- endfrom %}          
+{%- endmacro %}
+
+{#- A stage table for a history table should have an Index for dss_load_datetime #}
+  {#- Can't address the next table after the stage object #}
+
+{# --==============================================================================                                                                         -- #}
+{# -- Others                                                                                                                                                -- #}
+{# --==============================================================================                                                                         -- #}  
+  
+{#- Any other table should be compressed -#}    
+  {#- Compression can't get addressed with Pebble yet -#}
+
+{#- Stage Tables should belong to Filegroup 'STAGE' -#}    
+  {#- Filegroup can't get addressed with Pebble yet #}  
+
+{#- All other tables should belong to Filegroup 'DATA' -#}    
+  {#- Filegroup can't get addressed with Pebble yet -#}  
+   
+{#- Clustered Columnstore Index should be on table Filegroup -#}    
+  {#- Filegroup can't get addressed with Pebble yet -#}    
+
+{#- All Indexes should be compressed -#}    
+  {#- Compression can't get addressed with Pebble yet -#}    
