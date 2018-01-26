@@ -1,7 +1,7 @@
 {# --==============================================================================                                                                         -- #}
 {# --                                                                                                                                                       -- #}
 {# -- DBMS Name          : SQL Server                                                                                                                       -- #}
-{# -- Template Name      : nu3_sqlserver_ddl_view                                                                                                           -- #}
+{# -- Template Name      : nu3_sqlserver_ddl_view_hist_current                                                                                              -- #}
 {# -- Description        : This template creates a view based on the meta data                                                                              -- #}
 {# -- Author             : Eckhard Zemp                                                                                                                     -- #}
 {# --                                                                                                                                                       -- #}
