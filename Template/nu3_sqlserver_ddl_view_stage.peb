@@ -1,7 +1,7 @@
 {# --==============================================================================                                                                         -- #}
 {# --                                                                                                                                                       -- #}
 {# -- DBMS Name          : SQL Server                                                                                                                       -- #}
-{# -- Template Name      : nu3_sqlserver_ddl_view                                                                                                           -- #}
+{# -- Template Name      : nu3_sqlserver_ddl_view_stage                                                                                                     -- #}
 {# -- Description        : This template creates a stage view based on the meta data                                                                        -- #}
 {# -- Author             : Eckhard Zemp                                                                                                                     -- #}
 {# --                                                                                                                                                       -- #}
@@ -22,6 +22,7 @@
 {#- Variables #}
   {%- set templateVersion = "20171212" -%}
   {%- set sysObjectType = "VIEW" -%}
+  {%- set targetTableSchema = getTableTargetSchema() | trim -%}  
 
 {#- Properties #}
   {%- if table.viewInfo.distinct is defined %}{%- endif %}  
@@ -32,7 +33,7 @@
 
 {#- Create View #}  
 {%- fetch table.target %}
-CREATE OR ALTER VIEW [{%- if table.target.schema != "" -%}{{table.target.schema}}{% else %}dbo{%- endif -%}].[{{table.name}}]{% br %}
+CREATE OR ALTER VIEW [{{ targetTableSchema }}].[{{ table.name }}]{% br %}
 ({% br %}
   {{- addInsertColumns(indent = "   ")}}){% br %}
 AS{% br %}
