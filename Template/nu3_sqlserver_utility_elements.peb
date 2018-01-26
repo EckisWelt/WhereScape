@@ -16,6 +16,7 @@
 {# -- 20171208 | Eckhard Zemp         | Add optional zero key id for dimensions                                                                             -- #}
 {# -- 20171214 | Eckhard Zemp         | Optimize View Creation in WHERE and Condense                                                                        -- #}
 {# -- 20180103 | Eckhard Zemp         | Add support for Sat Driving Keys                                                                                    -- #}
+{# -- 20180124 | Eckhard Zemp         | Redesign the MAX(dssLoadDate) formula                                                                               -- #}
 {# --                                                                                                                                                       -- #}
 {# --==============================================================================                                                                         -- #}
 
@@ -35,7 +36,25 @@
 {# --==============================================================================                                                                         -- #}
 {# -- SELECT statements                                                                                                                                     -- #}
 {# -- (ordered by execution layer)                                                                                                                          -- #}
-{# --==============================================================================                                                                         -- #}                                                                                                                         -- #}
+{# --==============================================================================                                                                         -- #}
+{# -- EXTRACT                                                                                                                                               -- #}
+{# --   Extract & Transform                                                                                                                                 -- #}
+{# --   Where dss_load_datetime > Target                                                                                                                    -- #}
+{# --   Transform to Target (not stage) Data Type                                                                                                           -- #}
+{# --   Clean Business Key used by Hash Keys(Stage only)                                                                                                    -- #}
+{# --   Calculate Hash Keys and Change Hash (Stage only)                                                                                                    -- #}
+{# -- LOAD                                                                                                                                                  -- #}
+{# --   Where not exists (Target only)                                                                                                                      -- #}
+{# --   Unique / Row Condensing (Stage & Target)                                                                                                            -- #}
+{# --   Verify historized last row with first row if it is a change (Target only)                                                                           -- #}
+{# --     Calculate RowNo for HistoryCheck (Target only)                                                                                                    -- #}
+{# --     Verify (Target only)                                                                                                                              -- #}
+{# --   Calculate History columns (Target only)                                                                                                             -- #}
+{# --     Calculate RowNo for dssVersion (Target only)                                                                                                      -- #}
+{# --     Calculate Timeline for dssStartDate, dssEndDate and dssVersion (Target only)                                                                      -- #}
+{# --     Calculate dssCurrentFlag for last entry (Target only)                                                                                             -- #}
+{# --   Lookup Dimension Key (Stage only)                                                                                                                   -- #}
+{# --   Load (Stage & Target)                                                                                                                               -- #}
 
 {# -- This macro adds the source columns and transformations for a SELECT statement to load data from a source table -- #}
 {% macro addSelectColumnsExtract(indent = "       ",firstInClause = true) %}
@@ -45,38 +64,26 @@
   {%- from table.columns as column where (column.sourceTable is defined or column.transform != "") and column.lookupKey == false %}
     {{- indent }}
     {%- if loop.first and firstInClause %} {% else %},{% endif %}
-    {%- if column.transform | trim != "" -%}
-      {{- getLines(indent + " ",object = column.transform) }}
-    {%- elseif column.name == dssLoadDate -%}
-      {%- fetch column.sourceTable %}      
-      {%- if column.sourceTable.objectType == Types.ObjectType.DataStore and table.ObjectType == Types.ObjectType.Stage -%}      
-        {%- from column.sourceTable.columns as column2 where column2.name == dssSequenceNo -%}      
-          DATEADD(NS,100*{{ column.sourceTable.name }}.{{ dssSequenceNo() }},{{ column.sourceTable.name }}.{{ dssLoadDate() }})
-        {%- else %}
-          {{ column.source }}
-        {%- endfrom %}
-      {%- elseif table.objectType == Types.ObjectType.Stage -%} 
-        {%- set tableList = "" %}
-        {%- set newLine = "
+    {%- if column.name == dssLoadDate -%}
+      {%- if table.objectType == Types.ObjectType.Stage -%}
+        {%- fetch column.sourceTable %}      
+        {%- if column.transform | upper | trim == "MAX" %}
+          {%- set tableList = "" %}
+          {%- set newLine = "
 " %}          
-        {%- from table.columns as column where column.sourceTable is defined %}
-          {%- fetch column.sourceColumn %}
-          {%- if column.sourceColumn.artificial == false %}
-            {%- fetch column.sourceTable %}
-            {%- from column.sourceTable.columns as column2 %}
-              {%- if column2.name == dssLoadDate %}
-                {%- if tableList contains column.sourceTable.name -%}{% else %}
-                  {%- set tableList = tableList + column.sourceTable.name + ";" -%}
+          {%- from table.columns as column where column.sourceTable is defined %}
+            {%- fetch column.sourceColumn %}
+            {%- if column.sourceColumn.artificial == false %}
+              {%- fetch column.sourceTable %}
+              {%- from column.sourceTable.columns as column2 %}
+                {%- if column2.name == dssLoadDate %}
+                  {%- if tableList contains column.sourceTable.name -%}{% else %}
+                    {%- set tableList = tableList + column.sourceTable.name + ";" -%}
+                  {%- endif %}
                 {%- endif %}
-              {%- endif %}
-            {%- endfrom %}
-          {%- endif %}
-        {%- endfrom %}
-        {%- set count = 0 %}
-        {%- for sourceTable in (tableList.Replace(';',newLine) | lines) -%}
-          {%- set count = count + 1 %}
-        {%- endfor %}
-        {%- if count > 1 -%}
+              {%- endfrom %}
+            {%- endif %}
+          {%- endfrom -%}
           ({% br %}
           {{- indent }}   SELECT MAX(v) FROM (VALUES {% br %}
           {%- for sourceTable in (tableList.Replace(';',newLine) | lines) -%}
@@ -84,13 +91,33 @@
             ({{ sourceTable }}.dss_load_datetime){% br %}
           {%- endfor -%}
           {{- indent }}   ) AS VALUE(v){% br %}
-          {{- indent }} )      
+          {{- indent }} )
+        {%- elseif column.transform | trim != "" -%}
+          {{- getLines(indent + " ",object = column.transform) }}                
+        {%- elseif column.sourceTable.objectType != Types.ObjectType.Stage -%}
+          {%- if column.sourceTable.objectType != Types.ObjectType.Load -%}
+            {%- set count = 0 -%}
+            {%- from column.sourceTable.columns as column3 -%}
+              {%- if column3.name == dssSequenceNo -%}
+                {%- set count = count + 1 -%}      
+              {%- endif -%}
+            {%- endfrom -%}
+            {%- if count > 0 -%}              
+              DATEADD(NS,100*{{ column.sourceTable.name }}.{{ dssSequenceNo() }},{{ column.sourceTable.name }}.{{ dssLoadDate() }})
+            {%- else -%}
+              {{ column.source }}
+            {%- endif %}  
+          {%- else -%}
+            {{ column.source }}
+          {%- endif -%}
         {%- else -%}
           {{ column.source }}            
         {%- endif %}
       {%- else -%}
         {{ column.source }}      
       {%- endif %}
+    {%- elseif column.transform | trim != "" -%}
+      {{- getLines(indent + " ",object = column.transform) }}
     {%- else -%}
       {{ column.source }}
     {%- endif %} AS {{ column.name }} {% br %}
@@ -159,8 +186,7 @@
   {%- set objectPrefixSatellite = objectPrefixSatellite() | trim %}
   {%- set settingStageCondense = settingStageCondense() | trim %}  
   {%- set settingDataStoreCondense = settingDataStoreCondense() | trim %} 
-  {%- set settingHubCondense = settingHubCondense() | trim %} 
-  {%- set settingLinkCondense = settingLinkCondense() | trim %} 
+  {%- set settingHubLinkCondense = settingHubLinkCondense() | trim %} 
   {%- set settingSatelliteCondense = settingSatelliteCondense() | trim %} 
   {%- set settingDimensionCondense = settingDimensionCondense() | trim %} 
   {%- set settingFactCondense = settingFactCondense() | trim %} 
@@ -191,11 +217,11 @@
       {%- endfrom %}    
     {%- endif %}
   {%- elseif table.objectType == Types.ObjectType.Hub or (table.objectType == Types.ObjectType.View and table.name contains objectPrefixHub) -%}
-    {%- if settingHubCondense == "true" %}  
+    {%- if settingHubLinkCondense == "true" %}  
       {{- indent }},ROW_NUMBER() OVER (PARTITION BY {{ getHashKeyString() }} , {{ getBKString() }} ORDER BY {{ dssLoadDate() }} ASC ) AS {{ dssRowNo() }}{% br %}    
     {%- endif %}
   {%- elseif table.objectType == Types.ObjectType.Link or (table.objectType == Types.ObjectType.View and table.name contains objectPrefixLink) -%}
-    {%- if settingLinkCondense == "true" %}  
+    {%- if settingHubLinkCondense == "true" %}  
       {{- indent }},ROW_NUMBER() OVER (PARTITION BY {{ getHashKeyString() }} ORDER BY {{ dssLoadDate() }} ASC ) AS {{ dssRowNo() }}{% br %}        
     {%- endif %}
   {%- elseif table.objectType == Types.ObjectType.Satellite or (table.objectType == Types.ObjectType.View and table.name contains objectPrefixSatellite) -%}
@@ -214,12 +240,12 @@
       {%- endfrom %}
       {%- if driving_key_column | trim != "" -%}    
         {%- from table.columns as column where column.changeHashKey -%}
-          {{- indent }},CASE WHEN LAG( {{ dssChangeHash() }} , 1 , {{ dssChangeHashDefaultValue() }} ) OVER ( PARTITION BY {{ driving_key_column }} ORDER BY {{ dssEventDate() }} ) = {{ dssChangeHash() }} THEN 0{% br %}
+          {{- indent }},CASE WHEN LAG( {{ dssChangeHash() }} , 1 , {{ dssChangeHashDefaultValue() }} ) OVER ( PARTITION BY {{ driving_key_column }} ORDER BY {{ dssEventDate() }},{{ dssLoadDate() }} ) = {{ dssChangeHash() }} THEN 0{% br %}
           {{- indent }}      ELSE 1{% br %}
           {{- indent }} END AS is_{{ column.name }}_change{% br %}
         {%- endfrom %}
         {%- from table.columns as column where column.name == driving_key_column -%}
-          {{- indent }},CASE WHEN LAG( {{ column.name }} , 1 , {{ dssChangeHashDefaultValue() }} ) OVER ( PARTITION BY {{ column.name }} ORDER BY {{ dssEventDate() }} ) = {{ column.name }} THEN 0{% br %}
+          {{- indent }},CASE WHEN LAG( {{ column.name }} , 1 , {{ dssChangeHashDefaultValue() }} ) OVER ( PARTITION BY {{ column.name }} ORDER BY {{ dssEventDate() }},{{ dssLoadDate() }} ) = {{ column.name }} THEN 0{% br %}
           {{- indent }}      ELSE 1{% br %}
           {{- indent }} END AS is_{{ column.name }}_change{% br %}
         {%- endfrom -%}
@@ -421,7 +447,7 @@
 {# -- Only artificial key column, business key columns and system columns are needed -- #}
 {% macro addInsertColumnsDimZeroKey(indent = "       ",firstInClause = true) %}
   {%- set dssLoadDate = dssLoadDate() | trim %}
-  {%- from table.columns as column where column.artificial or column.businessKey or column.createTime or column.updateTime or column.name == dssLoadDate -%}
+  {%- from table.columns as column where column.artificial or column.businessKey or column.createTime or column.updateTime or column.name == dssLoadDate or column.changeHashKey or column.nullAllowed == false -%}
     {{- indent }}
     {%- if loop.first and firstInClause %} {% else %},{% endif %}{{ column.name }}{% br %}
   {%- endfrom %}
@@ -430,7 +456,7 @@
 {# -- This macro adds the source values of a zero key row to load it into a dimension table  -- #}
 {% macro addSelectColumnsDimZeroKey(indent = "       ",firstInClause = true) %}
   {%- set dssLoadDate = dssLoadDate() | trim %}
-  {%- from table.columns as column where column.artificial or column.businessKey or column.createTime or column.updateTime or column.name == dssLoadDate %}
+  {%- from table.columns as column where column.artificial or column.businessKey or column.createTime or column.updateTime or column.name == dssLoadDate or column.changeHashKey or column.nullAllowed == false %}
     {{- indent }}
     {%- if loop.first and firstInClause %} {% else %},{% endif %}
     {%- if column.artificial -%}
@@ -448,6 +474,10 @@
       @v_current_datetime
     {%- elseif column.name == dssLoadDate -%} 
       {{ dssDateTimeMinValue() }}
+    {%- elseif column.changeHashKey -%} 
+      {{ dssChangeHashDefaultValue() }} 
+    {%- else -%}
+      '{{ column.zeroKeyValue }}'
     {%- endif %} AS {{ column.name }} {% br %}
   {%- endfrom %}
 {% endmacro %}
@@ -701,15 +731,15 @@
 
 {# -- This macro inserts the where clause for the max(dss_load_datetime) of the target -- #}
 {% macro addWhereDssLoadDateMax(indent = "    ") %}
-  {%- set target_object_name = "" -%}        
+  {%- set targetObjectName = "" -%}        
   {%- if table.extendedPropertyValuesByName.target_object_name is defined -%}
     {%- set list = table.extendedPropertyValuesByName.target_object_name -%}
     {%- for item in (list | lines) -%}
-      {%- if item | trim != "" -%}{%- set target_object_name = item | trim -%}{%- endif %}
+      {%- if item | trim != "" -%}{%- set targetObjectName = item | trim -%}{%- endif %}
     {%- endfor %} 
   {%- endif -%}
-  {%- if target_object_name != "" -%}
-  {{- indent }}WHERE  {{ dssLoadDate() }} > ( SELECT ISNULL(MAX({{ dssLoadDate() }}),{{ dssDateTimeMinValue() }}) FROM [TABLEOWNER].[{{ target_object_name }}]){% br %}
+  {%- if targetObjectName != "" -%}
+  {{- indent }}WHERE  {{ dssLoadDate() }} > (SELECT ISNULL(MAX({{ dssLoadDate() }}),{{ dssDateTimeMinValue() }}) FROM [TABLEOWNER].[{{ targetObjectName }}]){% br %}
   {%- endif -%}
 {% endmacro %}
 
@@ -761,22 +791,35 @@
 
 {% macro addWhereCondenseSat(indent = "       ", firstInClause = true ) %}
   {%- set dssLoadDate = dssLoadDate() | trim %}
-  {%- set driving_key_column = "" -%}        
+  {%- set driving_key_column = "" -%}
+  {%- set newLine = "
+" %} 
+  {%- set listDssLoadDate = "" %}
+  {%- set listChange = "" %}
   {%- if table.extendedPropertyValuesByName.driving_key_column is defined -%}
     {%- set list = table.extendedPropertyValuesByName.driving_key_column -%}
     {%- for item in (list | lines) -%}
       {%- if item | trim != "" -%}{%- set driving_key_column = item | trim -%}{%- endif %}
     {%- endfor %} 
   {%- endif -%}      
-  {%- from table.columns as column where column.name == dssLoadDate -%}
+  {%- from table.columns as column %}
+    {%- if column.name == dssLoadDate -%}
+      {%- set listDssLoadDate = listDssLoadDate + column.name + newLine %}
+    {%- elseif column.changeHashKey -%}      
+      {%- set listChange = listChange + column.name + newLine %}    
+    {%- elseif column.name == driving_key_column -%}          
+      {%- set listChange = listChange + column.name + newLine %}
+    {%- endif %}
+  {%- endfrom %}
+  {%- for line in (listDssLoadDate | trim | lines) -%}
     {{- indent }}
-    {%- if loop.first and firstInClause %}WHERE  {% else %}       AND {% endif %}is_{{ column.name }}_change = 1{% br %}    
-  {%- endfrom -%}
+    {%- if loop.first and firstInClause %}WHERE  {% else %}       AND {% endif %}is_{{ line }}_change = 1{% br %}    
+  {%- endfor -%}
   {{- indent }}       AND ({% br %}
-  {%- from table.columns as column where column.changeHashKey or column.name == driving_key_column -%}
+  {%- for line in (listChange | trim | lines) -%}  
     {{- indent }}
-    {%- if loop.first and firstInClause %}         {% else %}         OR {% endif %}is_{{ column.name }}_change = 1{% br %}
-  {%- endfrom -%}  
+    {%- if loop.first and firstInClause %}         {% else %}         OR {% endif %}is_{{ line }}_change = 1{% br %}
+  {%- endfor -%}  
   {{- indent }}       ){% br %}  
 {% endmacro %}
 
