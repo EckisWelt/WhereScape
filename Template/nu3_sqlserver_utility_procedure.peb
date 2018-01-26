@@ -110,10 +110,10 @@ AS{% br %}
       + '. Step ' + CONVERT(VARCHAR,ISNULL(@v_step,0)){% br %} 
       + '. Error Num: ' + CONVERT(VARCHAR,ISNULL(ERROR_NUMBER(),0)){% br %} 
       + '. Error Msg: ' + ERROR_MESSAGE(),1,255){% br %}{% br %}
-  END CATCH{% br %}
-  IF XACT_STATE() <> 0{% br %}
-  BEGIN{% br %}
-    ROLLBACK TRANSACTION{% br %}
-  END{% br %}{% br %}
+    IF XACT_STATE() <> 0{% br %}
+    BEGIN{% br %}
+      ROLLBACK TRANSACTION{% br %}
+    END{% br %}{% br %}
+  END CATCH{% br %}{% br %}
   RETURN 0{% br %}
 {% endmacro %}
