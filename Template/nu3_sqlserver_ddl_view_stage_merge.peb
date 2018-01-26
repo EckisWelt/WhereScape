@@ -1,0 +1,62 @@
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- DBMS Name          : SQL Server                                                                                                                       -- #}
+{# -- Template Name      : nu3_sqlserver_ddl_view_stage_merge                                                                                               -- #}
+{# -- Description        : This template creates a stage view based on the meta data                                                                        -- #}
+{# -- Author             : Eckhard Zemp                                                                                                                     -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- Notes / History                                                                                                                                       -- #}
+{# -- 20171102 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
+{# -- 20171212 | Eckhard Zemp         | Finally found a way to reuse the stage block                                                                        -- #}
+{# --                                                                                                                                                       -- #}
+{# --==============================================================================                                                                         -- #}
+
+{#- Load some utility macros #}
+  {%- import "nu3_sqlserver_utility_configuration" -%}
+  {%- import "nu3_sqlserver_utility_elements" -%}
+  {%- import "nu3_sqlserver_utility_snippets" -%}
+  {%- import "nu3_sqlserver_utility_ddl" -%}
+
+{#- Variables #}
+  {%- set templateVersion = "20171212" -%}
+  {%- set sysObjectType = "VIEW" -%}
+  {%- set targetTableSchema = getTableTargetSchema() | trim -%}  
+
+{#- Properties #}
+  {%- if table.viewInfo.distinct is defined %}{%- endif %}  
+  {%- if table.viewInfo.whereClause is defined %}{%- endif %}  
+  
+{#- Drop Table #}
+  {{- addDropTable(table.target) }}
+
+{#- Create View #}  
+{%- fetch table.target %}
+CREATE OR ALTER VIEW [{{ targetTableSchema }}].[{{ table.name }}]{% br %}
+({% br %}
+  {{- addInsertColumns(indent = "   ")}}){% br %}
+AS{% br %}
+
+{#- Create a table list because sourceTablesByName doesn't work in DDL #}
+  {%- set tableList = "" %}
+  {%- from table.columns as column where column.sourceTable is defined %}
+    {%- fetch column.sourceTable %}
+    {%- if tableList contains column.sourceTable.name -%}{% else %}
+      {%- set tableList = tableList + column.sourceTable.name + ";" -%}
+    {%- endif %}
+  {%- endfrom %}
+
+{#- Loop through each merge table #}  
+  {%- set newLine = "
+" %}
+  {%- for mergeTable in (tableList.Replace(';',newLine) | lines) -%}
+    {%- include "nu3_sqlserver_block_select_stage" with {"indent":"  "} %}
+    {%- if not loop.last %}
+      {% br %}
+  UNION ALL{% br %}
+      {% br %}
+    {%- endif %}
+  
+{#- Loop end -#}  
+  {%- endfor %}  
