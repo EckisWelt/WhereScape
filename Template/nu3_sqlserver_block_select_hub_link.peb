@@ -9,6 +9,7 @@
 {# --                                                                                                                                                       -- #}
 {# -- History                                                                                                                                               -- #}
 {# -- 20171213 | Eckhard Zemp         | Initial Creation                                                                                                    -- #}
+{# -- 20180109 | Eckhard Zemp         | Add Update Option                                                                                                   -- #}
 {# --                                                                                                                                                       -- #}
 {# --==============================================================================                                                                         -- #}
 
@@ -31,14 +32,18 @@
                           {{- addSelectColumnsExtract(indent = indent + "            ") }}    
                    {%- if table.sourceJoinDetails.join | trim != "" %}{{- indent }}      {{ getLines(indent = indent + "      ",object = table.sourceJoinDetails.join) }}{% br %}{%- endif %}
                    {%- if table.sourceJoinDetails.where | trim != "" %}{{- indent }}      {{ getLines(indent = indent + "      ",object = table.sourceJoinDetails.where) }}{% br %}{%- endif %}
-{{- indent }}    ) AS {{ table.name }}{% br %}      
-                 {%- if sysObjectType == "TABLE" %}            
-                   {%- if table.objectType == Types.ObjectType.Hub %}
-                     {{- addWhereHubNotExists(indent = indent + "    ") }}
-                   {%- elseif table.objectType == Types.ObjectType.Link %}
-                     {{- addWhereLinkNotExists(indent = indent + "    ") }}
+{{- indent }}    ) AS {{ table.name }}{% br %}
+                 {%- if command == "INSERT" %}
+                   {%- if sysObjectType == "TABLE" %}            
+                     {%- if table.objectType == Types.ObjectType.Hub %}
+                       {{- addWhereHubNotExists(indent = indent + "    ") }}
+                     {%- elseif table.objectType == Types.ObjectType.Link %}
+                       {{- addWhereLinkNotExists(indent = indent + "    ") }}
+                     {%- endif %}
                    {%- endif %}
                  {%- endif %}
 {{- indent }}  ) AS {{ table.name }}{% br %}      
-{{- indent }}) AS {{ table.name }}{% br %}            
+{{- indent }}) AS {{ table.name }}{% br %}   
+             {%- if settingHubLinkCondense == "true" %}                      
 {{- indent }}WHERE {{ dssRowNo() }} = 1{% br %}
+             {%- endif %}
