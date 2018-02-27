@@ -47,9 +47,9 @@
   
 {#- Metadata #}      
   {%- if settingSatelliteCheckMetaData == "true" -%}
-    {{- addProcedureCommentBlock(indent = "  ", commentMessage = "Metadata Check") }}      
+    {{- addProcedureCommentBlock(indent = "  ", commentMessage = "Metadata Check") }} 
     {{- checkMetadata(indent = "  ") }}       
-    {{- checkMetadataSqlServer(indent = "  ") }}   
+    {{- checkMetadataSqlServer(indent = "  ") }}         
     {% br %}    
   {%- endif %}    
   
@@ -69,7 +69,7 @@
     {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Insert new records") }}
     SET @v_step = {% counter %}00{% br %}{% br %}
     BEGIN TRANSACTION{% br %}{% br %}
-      INSERT INTO [TABLEOWNER].[{{ table.name }}] WITH ( TABLOCK ){% br %}
+      INSERT INTO [TABLEOWNER].[{{ table.name }}] WITH ( TABLOCKX ){% br %}
       ({% br %}
              {{- addInsertColumns(indent = "            ") }}    
       ){% br %}
