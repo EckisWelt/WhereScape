@@ -16,6 +16,18 @@
 {# -- System Columns                                                                                                                                        -- #}
 {# --==============================================================================                                                                         -- #}
 
+{%- macro dssLoadDate() -%}
+  dss_load_datetime
+{%- endmacro -%}
+
+{%- macro dssRecordSource() -%}
+  dss_record_source
+{%- endmacro -%}
+
+{%- macro dssChangeHash() -%}
+  dss_change_hash   
+{%- endmacro -%}
+
 {%- macro dssCreateTime() -%}
   dss_create_datetime
 {%- endmacro -%}
@@ -38,18 +50,6 @@
 
 {%- macro dssCurrentFlag() -%}
   dss_current_flag    
-{%- endmacro -%}
-
-{%- macro dssChangeHash() -%}
-  dss_change_hash   
-{%- endmacro -%}
-
-{%- macro dssLoadDate() -%}
-  dss_load_datetime
-{%- endmacro -%}
-
-{%- macro dssRecordSource() -%}
-  dss_record_source
 {%- endmacro -%}
 
 {# --==============================================================================                                                                         -- #}
@@ -114,6 +114,10 @@
 
 {%- macro dssChangeHashDefaultValue() -%}
   CONVERT(BINARY(16),'')
+{%- endmacro -%}
+
+{%- macro zeroKeyId() -%}
+  -1
 {%- endmacro -%}
 
 {# --==============================================================================                                                                         -- #}
