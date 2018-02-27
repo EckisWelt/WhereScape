@@ -19,6 +19,7 @@
 {# -- 20171219 | Eckhard Zemp         | Added delta loading option                                                                                          -- #}
 {# -- 20180102 | Eckhard Zemp         | Merge stage fact features into here                                                                                 -- #}
 {# -- 20180105 | Eckhard Zemp         | Verify Meta Data                                                                                                    -- #}
+{# -- 20180207 | Eckhard Zemp         | Dim Lookup WITH(NOLOCK) and update with BK                                                                          -- #}
 {# --                                                                                                                                                       -- #}
 {# --==============================================================================                                                                         -- #}
 
@@ -44,7 +45,7 @@
     {%- for item in (list | lines) -%}
       {%- if item | trim != "" -%}{%- set targetObjectName = item | trim -%}{%- endif %}
     {%- endfor %} 
-  {%- endif -%}  
+  {%- endif -%}    
   {%- set hasBK = false -%}
   {%- from table.columns as column where column.businessKey -%}
     {%- set hasBK = true -%}
@@ -92,7 +93,7 @@
 
 {#- Create temporary table only if we have to calculate a hash key #}
     {%- if hasHashKey == true -%}
-    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Temporary Table") }}
+    {{- addProcedureCommentBlock(indent = "    ", commentMessage = "Temporary Table for Hash Calculation") }}
     SET @v_step = {% counter %}00{% br %}{% br %}
     SET @v_row_count = 0{% br %}{% br %}
     IF OBJECT_ID('tempdb..{{ TempTable }}') IS NOT NULL
@@ -149,11 +150,11 @@
               {%- if item | trim | lower == "false" -%}{%- set insert_missing_bk = false -%}{%- endif %}
             {%- endfor %} 
           {%- endif %}
-          {%- set zero_key_id = 0 -%}        
+          {%- set zeroKeyId = zeroKeyId() | trim -%}        
           {%- if fk.toTable.extendedPropertyValuesByName.zero_key_id is defined -%}
             {%- set list = fk.toTable.extendedPropertyValuesByName.zero_key_id -%}
             {%- for item in (list | lines) -%}
-              {%- if item | trim != "" -%}{%- set zero_key_id = item | trim -%}{%- endif %}
+              {%- if item | trim != "" -%}{%- set zeroKeyId = item | trim -%}{%- endif %}
             {%- endfor %} 
           {%- endif -%}          
           {%- if insert_missing_bk == true %}
@@ -174,7 +175,7 @@
             {%- for fk in rel.fks %}     
               {%- fetch fk.toTable %}
               {%- if loop.first %}
-                {%- from fk.toTable.columns as column where column.createTime or column.updateTime or column.name == dssLoadDate %}    
+                {%- from fk.toTable.columns as column where column.createTime or column.updateTime or column.name == dssLoadDate or column.changeHashKey %}    
             ,{{ column.name }}{% br %}
                 {%- endfrom %}
               {%- endif %}          
@@ -189,23 +190,33 @@
             {%- for fk in rel.fks %}     
               {%- fetch fk.toTable %}
               {%- if loop.first %}       
-                {%- from fk.toTable.columns as column where column.createTime or column.updateTime or column.name == dssLoadDate %}    
+                {%- from fk.toTable.columns as column where column.createTime or column.updateTime or column.name == dssLoadDate or column.changeHashKey %}    
             ,{%- if column.updateTime or column.createTime -%} 
                 @v_current_datetime
-            {%- elseif column.name == dssLoadDate -%}
+            {%- elseif column.name == dssLoadDate -%}            
                 '0001-01-01'
+            {%- elseif column.changeHashKey -%}                            
+              {{ dssChangeHashDefaultValue() }}
             {%- else -%}
                 {{ column.name }}
             {%- endif %}{% br %}
                 {%- endfrom %}          
               {%- endif %}
             {%- endfor %}
-      FROM   [TABLEOWNER].[{{ table.name }}]{% br %}
+      FROM   [TABLEOWNER].[{{ table.name }}] {{ table.name }}{% br %}
             {%- for fk in rel.fks %}     
               {%- fetch fk.toTable %}
               {%- if loop.first %}       
                 {%- from fk.toTable.columns as column where column.artificial %}    
-      WHERE  {{ column.name }} = {{ zero_key_id }}{% br %}
+      WHERE  {{ column.name }} = {{ zeroKeyId }}{% br %}
+             AND NOT EXISTS ( SELECT 1{% br %}
+                              FROM   [TABLEOWNER].[{{ fk.toTable.name }}] {{ fk.toTable.name }}{% br %}
+                              {%- for fk in rel.fks %}   
+                              {% if loop.first %}WHERE  {% else %}       AND {% endif %} 
+                              {%- fetch fk.fromColumn %}
+                              {{- table.name }}.{{ fk.fromColumn.name }} = {{ fk.toTable.name }}.{{ fk.fromColumn.name }}{% br %}
+                              {%- endfor %} 
+                            )
       ;{% br %}{% br %}
       SELECT @v_row_count = @@ROWCOUNT{% br %}{% br %}
     COMMIT{% br %}{% br %}
@@ -226,7 +237,7 @@
             ,{{ column2.name }} = @v_current_datetime{% br %}
                   {%- endfrom %}
       FROM   [TABLEOWNER].[{{ fk.toTable.name }}]{% br %}
-      WHERE  {{ table.name }}.{{ column.name }} = 0{% br %}
+      WHERE  {{ table.name }}.{{ column.name }} = {{ zeroKeyId }}{% br %}
                   {%- for fkBK in rel.fks %}   
                     {%- fetch fkBK.fromColumn %}
                     {%- fetch fkBK.toColumn %}              
