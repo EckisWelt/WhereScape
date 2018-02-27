@@ -440,6 +440,7 @@
 {% macro checkMetadataChangeHashKeyColumnsInTarget(indent) %}  
   {%- set count = 0 %}
   {%- set errorCount = 0 %}
+  {%- set sourceColumnCount = 0 %}  
   {%- if table.objectType != Types.ObjectType.Stage %}    
     {%- from table.columns as column %}
       {%- if column.changeHashKey %}
@@ -449,19 +450,32 @@
     {%- if count == 1 %}
       {%- from table.columns as column where column.changeHashKey %}
         {%- fetch column.sourceColumn %}
-        {%- from column.sourceColumn.hashKeySources as hashKeySourceColumn %}
-          {%- set verifyCount = 0 %}
-          {%- from table.columns as verifyColumn where verifyColumn.sourceColumn is defined and verifyColumn.sourceTable is defined %}
-            {%- fetch verifyColumn.sourceColumn -%}
-            {%- if verifyColumn.sourceColumn.name == hashKeySourceColumn.name -%}
-              {%- set verifyCount = verifyCount + 1 %}
+        {%- if column.sourceColumn.hashKeySources is defined %}
+          {%- for src in column.sourceColumn.hashKeySources %}
+            {%- set sourceColumnCount = sourceColumnCount + 1 %}
+          {%- else %}
+            {%- set sourceColumnCount = 0 %}            
+          {%- endfor %}
+        {%- else %}
+          {%- set sourceColumnCount = 0 %}  
+        {%- endif %}
+        {%- if sourceColumnCount > 0 %}          
+          {%- from column.sourceColumn.hashKeySources as hashKeySourceColumn %}
+            {%- set verifyCount = 0 %}
+            {%- from table.columns as verifyColumn where verifyColumn.sourceColumn is defined and verifyColumn.sourceTable is defined %}
+              {%- fetch verifyColumn.sourceColumn -%}
+              {%- if verifyColumn.sourceColumn.name == hashKeySourceColumn.name -%}
+                {%- set verifyCount = verifyCount + 1 %}
+              {%- endif %}
+            {%- endfrom %}
+            {%- if verifyCount == 0 %}
+              {%- set errorCount = errorCount + 1 %}
+              {{- indent }}ERROR in ChangeHashKey: Hashed Column '{{ hashKeySourceColumn.name }}' doesn't exist. Add the column from stage.{% br %}
             {%- endif %}
           {%- endfrom %}
-          {%- if verifyCount == 0 %}
-            {%- set errorCount = errorCount + 1 %}
-            {{- indent }}ERROR in ChangeHashKey: Hashed Column '{{ hashKeySourceColumn.name }}' doesn't exist. Add the column from stage.{% br %}
-          {%- endif %}
-        {%- endfrom %}
+        {%- else %}
+          {{- indent }}ERROR in ChangeHashKey: ChangeHashKey column in stage table is not defined.{% br %}
+        {%- endif %}
       {%- endfrom %} 
       {%- if errorCount == 0 %}
         {{- indent }}-- ChangeHashKey: All hashed columns exists in table.{% br %}
@@ -492,9 +506,15 @@
   {%- set count = 0 %}
   {%- set dssChangeHash = dssChangeHash() | trim  %}
   {%- if table.objectType != Types.ObjectType.Stage %}{%- if table.objectType != Types.ObjectType.View %}{%- if table.objectType != Types.ObjectType.Load %} 
-    {%- from table.columns as column where column.name == dssChangeHash %}    
-      {%- if column.changeHashKey == false %}
-        {{- indent }}ERROR in ChangeHashKeys: Column '{{ column.name }}' is the ChangeHashKey. Set it in Key Type as 'c'.{% br %}
+    {%- from table.columns as column where column.name == dssChangeHash %} 
+      {%- if table.objectType == Types.ObjectType.DataStore %}   
+        {%- if column.slowlyChanging == false %}
+          {{- indent }}ERROR in ChangeHashKeys: Column '{{ column.name }}' is the ChangeHashKey. Set it in Key Type as '7'.{% br %}
+        {%- endif %}      
+      {%- else %}
+        {%- if column.changeHashKey == false %}
+          {{- indent }}ERROR in ChangeHashKeys: Column '{{ column.name }}' is the ChangeHashKey. Set it in Key Type as 'c'.{% br %}
+        {%- endif %}
       {%- endif %}
     {%- endfrom %}
   {%- endif %}{%- endif %}{%- endif %}
