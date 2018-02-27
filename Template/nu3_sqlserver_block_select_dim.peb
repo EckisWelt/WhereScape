@@ -14,14 +14,14 @@
 {# --                                                                                                                                                       -- #}
 {# -- Extended Properties                                                                                                                                   -- #}
 {# -- zero_key_id                                                                                                                                           -- #}
-{# --   Define the zero key value. '0' will be used by default. If that is occupied                                                                         -- #}
-{# --   set it to e.g. '-1'                                                                                                                                 -- #}
+{# --   Define the zero key value. '-1' will be used by default.                                                                                            -- #}
 {# -- insert_zero_key                                                                                                                                       -- #}
 {# --   In the templates it is set by default to "true". If the zero key shouldn't                                                                          -- #}
 {# --   be created, add "false" to the property.                                                                                                            -- #}
 {# -- insert_missing_bk                                                                                                                                     -- #}
 {# --   In the templates it is set by default to "true". If the table should not                                                                            -- #}
-{# --   have missing business keys inserted, set the property to "false".                                                                                   -- #}
+{# --   have missing business keys inserted by fact objects, set the property to                                                                            -- #}
+{# --   "false".                                                                                                                                            -- #}
 {# --                                                                                                                                                       -- #}
 {# --==============================================================================                                                                         -- #}
 
